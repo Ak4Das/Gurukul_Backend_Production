@@ -1,29 +1,33 @@
-// essential imports
 import { Router } from "express"
 import mongoose from "mongoose"
-// model imports
 import { Student } from "../models/Student.js"
 import { User } from "../models/User.js"
 import { Class } from "../models/Class.js"
 import { Subject } from "../models/Subject.js"
 import { Parent } from "../models/Parent.js"
 import { FeeReceipt } from "../models/FeeReceipt.js"
+import { Attendance } from "../models/Attendance.js"
 import { Exam } from "../models/Exam.js"
+import { Discipline } from "../models/Discipline.js"
 import { Helpdesk } from "../models/Helpdesk.js"
+import { Complaint } from "../models/Complaint.js"
+import { Admission } from "../models/Admission.js"
 import { Mark } from "../models/Mark.js"
+import { Assignment } from "../models/Assignment.js"
 import { Timetable } from "../models/Timetable.js"
-// middleware imports
-import { allowRoles, authRequired } from "../middleware/auth.js"
+import { authRequired } from "../middleware/auth.js"
 
 const router = Router()
 router.use(authRequired)
 
-//! GET /dashboard/stats - Admin Dashboard Analytics
+// ==========================================
+// GET /dashboard/stats - Admin Dashboard Analytics
+// ==========================================
 router.get("/stats", async (req, res, next) => {
   try {
     const today = new Date().toISOString().slice(0, 10)
 
-    // Build rolling 7-day date (yyyy-mm-dd) strings array
+    // Build rolling 7-day date strings array
     const feeDates = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
@@ -38,17 +42,20 @@ router.get("/stats", async (req, res, next) => {
       subjects,
       parents,
       todayFeeStats,
+      outstandingStats,
+      attendanceStats,
       activeExams,
+      discipline,
       helpdesk,
+      complaints,
       genderMixStats,
+      severityStats,
       feeTrendStats,
+      pendingAdmissions,
+      sheetsAwaitingPublish,
+      activeStudentsList,
     ] = await Promise.all([
       // Total & Active Students Count
-      // aggregate() is MongoDB's aggregation framework. and Student.aggregate tells mongoose that Run a MongoDB aggregation pipeline on the Student collection.
-      // $group is used when you want to combine documents into groups and calculate something for each group.
-      // _id: null means i want one overall group containing all students.
-      // totalStudents: { $sum: 1 } means For every document in the group, MongoDB adds 1
-      // $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } this means For every student, check whether their status is "active". If yes, add 1; otherwise add 0.
       Student.aggregate([
         {
           $group: {
@@ -62,47 +69,79 @@ router.get("/stats", async (req, res, next) => {
       ]),
 
       // Count operations
-      // counts only users where role is teacher and status is active
       User.countDocuments({ role: "teacher", status: "active" }),
-      // counts only classes where status is not equal to archived
       Class.countDocuments({ status: { $ne: "archived" } }),
-      // count all subjects
       Subject.countDocuments(),
-      // counts only classes where status is active
       Parent.countDocuments({ status: "active" }),
 
       // Today's Fee Receipts aggregated sum and count
-      // FeeReceipt documents -> $match -> $group -> Final result
-      // $match is used to filter documents it is similar to the filter.
-      // $group combine the remaining documents after $match and calculate todaysCollection from them.
-      // todaysCollection is the sum of all feeReceipts amountPaid value
       FeeReceipt.aggregate([
         { $match: { date: today, status: { $ne: "refunded" } } },
         {
           $group: {
             _id: null,
             todaysCollection: { $sum: "$amountPaid" },
+            receiptsToday: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // Outstanding balances sum across partial/unpaid receipts
+      FeeReceipt.aggregate([
+        { $match: { status: { $in: ["partial", "unpaid"] } } },
+        {
+          $group: {
+            _id: null,
+            outstanding: { $sum: "$balance" },
+          },
+        },
+      ]),
+
+      // Attendance records breakdown for today
+      Attendance.aggregate([
+        { $match: { date: today } },
+        { $unwind: "$records" },
+        {
+          $group: {
+            _id: null,
+            marked: { $sum: 1 },
+            present: {
+              $sum: {
+                $cond: [
+                  { $in: ["$records.status", ["present", "late", "halfday"]] },
+                  1,
+                  0,
+                ],
+              },
+            },
           },
         },
       ]),
 
       // Active Exams Count
-      // counts only exams where status must be one of scheduled or ongoing
       Exam.countDocuments({ status: { $in: ["scheduled", "ongoing"] } }),
 
       // Open Incident / Support counts
-      // counts only helpdesk tickets where status is open
+      Discipline.countDocuments({ status: "open" }),
       Helpdesk.countDocuments({ status: "open" }),
+      Complaint.countDocuments({ status: "open" }),
 
       // Gender distribution aggregation
-      // The value of _id determines which group a document belongs to.
-      // $ifNull means If $gender is null or missing, use "other" instead.
-      // $toLower converts the resulting string to lowercase.
       Student.aggregate([
         { $match: { status: "active" } },
         {
           $group: {
             _id: { $toLower: { $ifNull: ["$gender", "other"] } },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // Discipline incidents by severity aggregation
+      Discipline.aggregate([
+        {
+          $group: {
+            _id: { $ifNull: ["$severity", "low"] },
             count: { $sum: 1 },
           },
         },
@@ -123,22 +162,63 @@ router.get("/stats", async (req, res, next) => {
           },
         },
       ]),
+
+      // Admissions and Mark Sheets
+      Admission.countDocuments({ status: "registered" }),
+      Mark.countDocuments({ status: "submitted" }),
+
+      // Active students dob payload for birthday matching
+      Student.find({ status: "active", dob: { $ne: null } })
+        .select("firstName lastName dob")
+        .lean(),
     ])
 
-    // count number of male and female students
+    // Format Gender Mix
     const genderMix = {}
-
     genderMixStats.forEach((g) => {
       genderMix[g._id] = g.count
     })
 
-    // previous 7 days total fee collection
-    const feeTrendMap = new Map(feeTrendStats.map((f) => [f._id, f.amount]))
+    // Format Severity Breakdown
+    const severity = {}
+    severityStats.forEach((s) => {
+      severity[s._id] = s.count
+    })
 
+    // Format 7-day Fee Trend with 0 fallback
+    const feeTrendMap = new Map(feeTrendStats.map((f) => [f._id, f.amount]))
     const feeTrend = feeDates.map((date) => ({
       date,
       amount: feeTrendMap.get(date) || 0,
     }))
+
+    // Birthday calculations (within upcoming 7 days)
+    const birthdays = []
+    const now = new Date()
+    const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+    for (const s of activeStudentsList) {
+      if (!s.dob) continue
+      const dob = new Date(s.dob)
+      if (Number.isNaN(dob.getTime())) continue
+
+      let next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate())
+      if (next < todayZero) {
+        next.setFullYear(now.getFullYear() + 1)
+      }
+
+      const inDays = Math.round((next - todayZero) / 86400000)
+      if (inDays <= 7) {
+        const local = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`
+        birthdays.push({
+          name: `${s.firstName} ${s.lastName || ""}`.trim(),
+          date: local,
+          inDays,
+          turns: next.getFullYear() - dob.getFullYear(),
+        })
+      }
+    }
+    birthdays.sort((a, b) => a.inDays - b.inDays)
 
     return res.json({
       activeStudents: studentCounts[0]?.activeStudents || 0,
@@ -148,190 +228,147 @@ router.get("/stats", async (req, res, next) => {
       subjects,
       parents,
       todaysCollection: todayFeeStats[0]?.todaysCollection || 0,
-      outstanding: 0,
+      outstanding: outstandingStats[0]?.outstanding || 0,
+      attendanceToday: {
+        present: attendanceStats[0]?.present || 0,
+        marked: attendanceStats[0]?.marked || 0,
+      },
       activeExams,
+      openIncidents: discipline,
       openTickets: helpdesk,
+      openComplaints: complaints,
       genderMix,
+      severity,
       feeTrend,
+      birthdays,
+      pendingAdmissions,
+      sheetsAwaitingPublish,
+      receiptsToday: todayFeeStats[0]?.receiptsToday || 0,
     })
   } catch (err) {
     return next(err)
   }
 })
 
-//! GET /dashboard/teacher - Teacher Specific Dashboard
-router.get("/teacher", allowRoles("teacher"), async (req, res, next) => {
+// ==========================================
+// GET /dashboard/teacher - Teacher Specific Dashboard
+// ==========================================
+router.get("/teacher", async (req, res, next) => {
   try {
     const teacherId = req.user.id || req.user._id
 
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(401).json({
-        error: "Invalid teacher identity",
-      })
-    }
-
-    const teacherObjectId = new mongoose.Types.ObjectId(teacherId)
-
-    //? Get only timetable records containing this teacher
-    // $match => Give me only Timetable documents where at least one element inside periods has this teacherId.
-    // periods.teacherId => Because teacherId isn't directly on the timetable document It's nested inside each array element
-    // $project controls what fields the aggregation returns.
-    // classId: 1 means Include classId.
-    // periods: { $filter: ...} => Create a new periods array containing only the periods that satisfy our condition.
-    // input: "$periods" means Take the existing periods array and examine each element.
-    // as: "period" => This gives the current array element a temporary variable name 'period'
-    // $$period.teacherId => Get the teacherId property from the current period.
-    const teacherTimetables = await Timetable.aggregate([
-      {
-        $match: {
-          "periods.teacherId": teacherObjectId, // In aggregation teacherObjectId must be a valid object id not a string id
-        },
-      },
-      {
-        $project: {
-          classId: 1,
-          periods: {
-            $filter: {
-              input: "$periods",
-              as: "period",
-              cond: {
-                $eq: ["$$period.teacherId", teacherObjectId],
-              },
-            },
-          },
-        },
-      },
+    const [
+      rawAssignments,
+      classesList,
+      subjectsList,
+      timetablesList,
+      activeExamsCount,
+      marksList,
+    ] = await Promise.all([
+      Assignment.find({ teacherId }).lean(),
+      Class.find({}).lean(),
+      Subject.find({}).lean(),
+      Timetable.find({}).lean(),
+      Exam.countDocuments({ status: { $in: ["scheduled", "ongoing"] } }),
+      Mark.find({ status: "draft" }).select("classId").lean(),
     ])
 
-    // 2. Extract unique class IDs and subject IDs
-    const classIdStrings = [
-      ...new Set(
-        teacherTimetables.map((t) => t.classId?.toString()).filter(Boolean),
-      ),
-    ]
-
-    // flatMap((t) => t.periods || []) takes the periods from every timetable and combines them into one flat array.
-    const subjectIdStrings = [
-      ...new Set(
-        teacherTimetables
-          .flatMap((t) => t.periods || [])
-          .map((p) => p.subjectId?.toString())
-          .filter(Boolean),
-      ),
-    ]
-
-    const myClassObjectIds = classIdStrings
-      .filter((id) => mongoose.Types.ObjectId.isValid(id))
-      .map((id) => new mongoose.Types.ObjectId(id))
-
-    const mySubjectObjectIds = subjectIdStrings
-      .filter((id) => mongoose.Types.ObjectId.isValid(id))
-      .map((id) => new mongoose.Types.ObjectId(id))
-
-    // Fetch only relevant classes and subjects
-    const [classes, subjects, activeExamsCount, draftSheets] =
-      await Promise.all([
-        Class.find({
-          _id: { $in: classIdStrings },
-        })
-          .select("_id name section academicYear")
-          .lean(),
-
-        Subject.find({
-          _id: { $in: mySubjectObjectIds },
-        })
-          .select("_id name")
-          .lean(),
-
-        Exam.countDocuments({
-          status: {
-            $in: ["scheduled", "ongoing"],
-          },
-          classIds: {
-            $in: classIdStrings,
-          },
-        }),
-
-        Mark.countDocuments({
-          status: "draft",
-          classId: {
-            $in: classIdStrings,
-          },
-        }),
-      ])
-
+    // Map helper for quick lookup
     const classMap = new Map(
-      classes.map((c) => [
+      classesList.map((c) => [
         c._id.toString(),
         `${c.name} ${c.section} (${c.academicYear})`,
       ]),
     )
+    const subjectMap = new Map(
+      subjectsList.map((s) => [s._id.toString(), s.name]),
+    )
 
-    const subjectMap = new Map(subjects.map((s) => [s._id.toString(), s.name]))
+    const classLabel = (id) => (id ? classMap.get(id.toString()) || "?" : "?")
 
-    // Build teacher periods
-    const teacherPeriods = []
+    // Extract unique assigned class IDs
+    const myClassObjectIds = [
+      ...new Set(rawAssignments.map((a) => a.classId?.toString())),
+    ]
+      .filter(Boolean)
+      .map((id) => new mongoose.Types.ObjectId(id))
 
-    for (const timetable of teacherTimetables) {
-      for (const period of timetable.periods || []) {
-        teacherPeriods.push({
-          ...period,
-          classId: timetable.classId,
-          className:
-            classMap.get(timetable.classId?.toString()) || "Unknown Class",
-          subjectName:
-            subjectMap.get(period.subjectId?.toString()) ||
-            period.subjectName ||
-            "Unknown Subject",
-        })
-      }
-    }
-
-    // Today's periods
-    const dayName = new Date().toLocaleDateString("en-US", {
-      weekday: "long",
-    })
-
-    const todaysPeriods = teacherPeriods
-      .filter((p) => p.day === dayName)
-      .sort((a, b) => a.period - b.period)
-
-    // Student count per teacher class
-    const studentCounts = await Student.aggregate([
+    // Aggregate student counts per assigned class
+    const studentCountPerClass = await Student.aggregate([
       {
         $match: {
           status: "active",
-          classId: {
-            $in: myClassObjectIds,
-          },
+          classId: { $in: myClassObjectIds },
         },
       },
       {
         $group: {
           _id: "$classId",
-          count: {
-            $sum: 1,
-          },
+          count: { $sum: 1 },
         },
       },
     ])
 
     const studentCountMap = new Map(
-      studentCounts.map((item) => [item._id.toString(), item.count]),
+      studentCountPerClass.map((sc) => [sc._id.toString(), sc.count]),
     )
+
+    // Format Assignments array
+    const assignments = rawAssignments.map((a) => ({
+      ...a,
+      className: classLabel(a.classId),
+      subjectName: subjectMap.get(a.subjectId?.toString()) || "?",
+      studentCount: studentCountMap.get(a.classId?.toString()) || 0,
+    }))
+
+    // Today's Periods Extraction
+    const dayName = new Date().toLocaleDateString("en-US", { weekday: "long" })
+    const todaysPeriods = []
+
+    for (const tt of timetablesList) {
+      for (const p of tt.periods || []) {
+        if (
+          p.teacherId?.toString() === teacherId.toString() &&
+          p.day === dayName
+        ) {
+          todaysPeriods.push({
+            ...p,
+            className: classLabel(tt.classId),
+            classId: tt.classId,
+          })
+        }
+      }
+    }
+    todaysPeriods.sort((a, b) => a.period - b.period)
+
+    // Identify Class Teacher details
+    const classTeacherOf = classesList.find(
+      (c) => c.classTeacherId?.toString() === teacherId.toString(),
+    )
+
+    // Compute stats metrics
+    const myClassIdStrings = myClassObjectIds.map((id) => id.toString())
+    const draftSheets = marksList.filter((m) =>
+      myClassIdStrings.includes(m.classId?.toString()),
+    ).length
 
     const totalStudentsInMyClasses = Array.from(
       studentCountMap.values(),
-    ).reduce((total, count) => total + count, 0)
+    ).reduce((acc, val) => acc + val, 0)
 
     return res.json({
       dayName,
-
+      assignments,
       todaysPeriods,
-
+      classTeacherOf: classTeacherOf ? classLabel(classTeacherOf._id) : null,
+      classTeacherClassId: classTeacherOf?._id || null,
       stats: {
-        classes: myClassObjectIds.length,
-        subjects: mySubjectObjectIds.length,
+        classes: myClassIdStrings.length,
+        subjects: [
+          ...new Set(
+            rawAssignments.map((a) => a.subjectId?.toString()).filter(Boolean),
+          ),
+        ].length,
         students: totalStudentsInMyClasses,
         draftSheets,
         activeExams: activeExamsCount,
