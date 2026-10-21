@@ -1,14 +1,11 @@
-// essential imports
 import { Router } from "express"
 import mongoose from "mongoose"
-// model imports
 import { Exam } from "../models/Exam.js"
 import { Mark } from "../models/Mark.js"
 import { Student } from "../models/Student.js"
 import { Subject } from "../models/Subject.js"
 import { Class } from "../models/Class.js"
 import { Settings } from "../models/Settings.js"
-// middleware imports
 import {
   authRequired,
   allowRoles,
@@ -25,35 +22,26 @@ function isValidObjectId(id) {
 
 // ---------- Grade Helper ----------
 function computeGrade(marks, maxMarks, passingMarks) {
-  if (marks == null || marks === "") {
-    return { grade: "-", pass: false }
-  }
+  if (marks == null || marks === "") return { grade: "-", pass: false }
   const pct = (Number(marks) / Number(maxMarks || 100)) * 100
   const pass = Number(marks) >= Number(passingMarks || 33)
   let grade = "F"
-  if (pct >= 90) {
-    grade = "A+"
-  } else if (pct >= 80) {
-    grade = "A"
-  } else if (pct >= 70) {
-    grade = "B+"
-  } else if (pct >= 60) {
-    grade = "B"
-  } else if (pct >= 50) {
-    grade = "C"
-  } else if (pass) {
-    grade = "D"
-  }
-  return { grade, pass, pct: pct.toFixed(1) }
+  if (pct >= 90) grade = "A+"
+  else if (pct >= 80) grade = "A"
+  else if (pct >= 70) grade = "B+"
+  else if (pct >= 60) grade = "B"
+  else if (pct >= 50) grade = "C"
+  else if (pass) grade = "D"
+  return { grade, pass, pct: Math.round(pct * 10) / 10 }
 }
 
-//! GET /exams - List all exams
+// ==========================================
+// GET /exams - List all exams
+// ==========================================
 router.get("/", async (req, res, next) => {
   try {
     const query = {}
-    if (req.query.status) {
-      query.status = String(req.query.status)
-    }
+    if (req.query.status) query.status = String(req.query.status)
 
     const exams = await Exam.find(query).sort({ startDate: -1 }).lean()
     return res.json(exams)
@@ -62,7 +50,9 @@ router.get("/", async (req, res, next) => {
   }
 })
 
-//! POST /exams - Schedule new exam
+// ==========================================
+// POST /exams - Schedule new exam
+// ==========================================
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
     const b = req.body
@@ -84,7 +74,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   }
 })
 
-//! PUT /exams/:id - Update exam details
+// ==========================================
+// PUT /exams/:id - Update exam details
+// ==========================================
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
@@ -109,7 +101,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   }
 })
 
-//! DELETE /exams/:id - Remove exam and associated marks
+// ==========================================
+// DELETE /exams/:id - Remove exam and associated marks
+// ==========================================
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
@@ -125,7 +119,9 @@ router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
   }
 })
 
-//! GET /exams/:examId/marks - Fetch mark sheet
+// ==========================================
+// GET /exams/:examId/marks - Fetch mark sheet pre-filled with class roster
+// ==========================================
 router.get(
   "/:examId/marks",
   allowRoles(...STAFF_TEACHER),
@@ -151,7 +147,6 @@ router.get(
         Mark.findOne({ examId: req.params.examId, classId, subjectId }).lean(),
       ])
 
-      // In this Map object we store studentIds as key and mark details as value
       const entryMap = new Map(
         (saved?.entries || []).map((e) => [e.studentId?.toString(), e]),
       )
@@ -175,7 +170,9 @@ router.get(
   },
 )
 
-//! POST /exams/:examId/marks - Save/Submit marks
+// ==========================================
+// POST /exams/:examId/marks - Save/Submit marks
+// ==========================================
 router.post(
   "/:examId/marks",
   allowRoles(...STAFF_TEACHER),
@@ -203,9 +200,11 @@ router.post(
         ["locked", "published"].includes(existing.status) &&
         req.user.role === "teacher"
       ) {
-        return res.status(403).json({
-          error: "Marks are locked. Contact administrator to make changes.",
-        })
+        return res
+          .status(403)
+          .json({
+            error: "Marks are locked. Contact administrator to make changes.",
+          })
       }
 
       const graded = (entries || []).map((e) => {
@@ -244,14 +243,17 @@ router.post(
   },
 )
 
-//! POST /exams/:examId/publish - Publish results (Admin only)
+// ==========================================
+// POST /exams/:examId/publish - Publish results (Admin only)
+// ==========================================
 router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.examId)) {
       return res.status(400).json({ error: "Invalid exam ID" })
     }
 
-    const publishedName = req.user?.username || "Admin"
+    const publishedName =
+      req.user?.fullName || req.user?.name || req.user?.username || "Admin"
     const updateResult = await Mark.updateMany(
       { examId: req.params.examId, status: { $in: ["submitted", "locked"] } },
       {
