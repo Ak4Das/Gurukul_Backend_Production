@@ -19,7 +19,7 @@ const studentSchema = new mongoose.Schema(
     },
     gender: {
       type: String,
-      enum: ["Male", "Female", "Other"],
+      enum: ["male", "female", "other"],
       required: true,
     },
     dob: {
@@ -32,7 +32,7 @@ const studentSchema = new mongoose.Schema(
     },
     curriculum: {
       type: String,
-      enum: ["CBSE"],
+      enum: ["IB PYP", "CBSE", "ICSE", "State Board"],
       required: true,
     },
     allergies: {
@@ -45,7 +45,7 @@ const studentSchema = new mongoose.Schema(
     },
     languages: {
       type: String,
-      default:"",
+      required: true,
     },
     classId: {
       type: mongoose.Schema.Types.ObjectId,
