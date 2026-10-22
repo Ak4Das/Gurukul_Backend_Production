@@ -98,7 +98,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     if (!klass) {
       return res.status(400).json({ error: "Please select a valid class" })
     }
-    const rollNo = await nextSeq(`${klass.name}${klass.section} - roll`)
+    const rollNo = await nextSeq(`${klass.name} - roll`)
 
     const studentData = {
       ...others,
@@ -140,13 +140,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
           mobile: parent.mobile,
           email: parent.email,
           passwordHash: pPassword, // Handled by User pre-save hook
-          address: others.address || "",
-          gender:
-            others.parentRelation === "Father"
-              ? "Male"
-              : others.parentRelation === "Mother"
-                ? "Female"
-                : "",
         })
 
         credentials.parentUsername = pUsername
@@ -169,10 +162,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       status: "active",
       refId: student._id,
       passwordHash: sPassword, // Handled by User pre-save hook
-      gender: others.gender,
-      address: others.address,
-      dob: others.dob,
-      joined: others.admissionDate,
     })
 
     credentials.studentUsername = sUsername
@@ -191,60 +180,20 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       return res.status(400).json({ error: "Invalid student ID format" })
     }
 
-    const studentObj = await Student.findById(req.params.id)
-
-    if (!studentObj) {
-      return res.status(400).json({ error: "Student not found" })
-    }
-
     const b = { ...req.body }
     delete b._id
     delete b.loginPassword
     delete b.parentPassword
     delete b.credentials
 
-    const studentData = {
-      ...b,
-    }
-
-    if (studentObj.classId.toString() !== b.classId) {
-      const klass = await Class.findById(b.classId)
-      if (!klass) {
-        return res.status(400).json({ error: "Please select a valid class" })
-      }
-      const rollNo = await nextSeq(`${klass.name}${klass.section} - roll`)
-
-      studentData.rollNo = rollNo
-    }
-
-    const updatedStudent = await Student.findByIdAndUpdate(
-      req.params.id,
-      studentData,
-      {
-        new: true,
-        runValidators: true,
-      },
-    )
+    const updatedStudent = await Student.findByIdAndUpdate(req.params.id, b, {
+      new: true,
+      runValidators: true,
+    })
 
     if (!updatedStudent) {
       return res.status(404).json({ error: "Student not found" })
     }
-
-    await User.findOneAndUpdate(
-      { refId: req.params.id },
-      {
-        fullName: `${b.firstName} ${b.lastName || ""}`.trim(),
-        status: b.status,
-        gender: b.gender,
-        address: b.address,
-        dob: b.dob,
-        joined: b.admissionDate,
-      },
-      {
-        new: true,
-        runValidators: true,
-      },
-    )
 
     return res.json(updatedStudent)
   } catch (err) {

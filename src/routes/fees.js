@@ -203,6 +203,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       amountPaid,
       balance,
       mode: b.mode || "cash",
+      reference: b.reference || "",
       remarks: b.remarks || "",
       collectedBy: userName,
       status,
@@ -264,7 +265,7 @@ router.post(
         return res.status(400).json({ error: "Invalid receipt ID format" })
       }
 
-      const userName = req.user?.username
+      const userName = req.user?.name || req.user?.username
 
       const updated = await FeeReceipt.findByIdAndUpdate(
         req.params.id,
@@ -279,7 +280,7 @@ router.post(
         return res.status(404).json({ error: "Receipt not found" })
       }
 
-      await DailyAccount.findOneAndDelete({ receiptId: updated._id })
+      await DailyAccount.findOneAndDelete({receiptId:updated._id})
 
       return res.json(updated)
     } catch (err) {
