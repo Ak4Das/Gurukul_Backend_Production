@@ -9,25 +9,41 @@ const feeStructureSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ["tuition", "transport", "exam", "admission", "other"],
+      enum: [
+        "tuition",
+        "transport",
+        "exam",
+        "admission",
+        "lab",
+        "activity",
+        "other",
+      ],
       required: true,
-    },
-    amount: {
-      type: Number,
-      required: true,
-      default: 0,
     },
     frequency: {
       type: String,
       enum: ["monthly", "annually"],
       default: "monthly",
     },
-    classIds: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Class",
+    classIds: {
+      type: [
+        {
+          classId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Class",
+            required: true,
+          },
+          amount: {
+            type: Number,
+            required: true,
+          },
+        },
+      ],
+      validate: {
+        validator: (value) => value.length > 0,
+        message: "At least one class is required",
       },
-    ],
+    },
     status: {
       type: String,
       enum: ["active", "inactive"],
