@@ -182,6 +182,13 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
         mobile: parent.mobile,
         refId: parent._id,
         passwordHash: pPassword, // Password hashing handled by User model pre-save hook
+        address: app.address || "",
+        gender:
+          app.parentRelation === "Father"
+            ? "Male"
+            : app.parentRelation === "Mother"
+              ? "Female"
+              : "",
       })
 
       credentials.parentUsername = pUsername
@@ -225,6 +232,10 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
       status: "active",
       refId: student._id,
       passwordHash: sPassword, // Password hashing handled by User model pre-save hook
+      gender: app.gender,
+      address: app.address,
+      dob: app.dob,
+      joined: admissionDate || new Date().toISOString().slice(0, 10),
     })
 
     credentials.studentUsername = sUsername
