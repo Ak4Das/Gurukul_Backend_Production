@@ -1,26 +1,30 @@
 import * as Yup from "yup"
 
 export const userSchema = Yup.object({
-  username: Yup.string().trim().lowercase(),
+  username: Yup.string().trim().required("Username is required"),
 
-  passwordHash: Yup.string(),
+  password: Yup.string(),
 
-  fullName: Yup.string().trim(),
+  fullName: Yup.string().trim().required("Full name is required"),
 
-  role: Yup.string().oneOf(
-    ["admin", "staff", "teacher", "student", "parent"],
-    "Invalid role",
-  ),
+  role: Yup.string()
+    .oneOf(
+      ["admin", "clerk", "teacher", "supervisor", "student", "parent"],
+      "Invalid role",
+    )
+    .required("Role is required"),
 
   status: Yup.string()
     .oneOf(["active", "suspended", "inactive"], "Invalid status")
     .default("active"),
 
-  email: Yup.string().email("Invalid email").trim().lowercase().default(""),
+  email: Yup.string().trim().email("Invalid email address").default(""),
 
   mobile: Yup.string().trim().default(""),
 
-  gender: Yup.string().default(""),
+  gender: Yup.string()
+    .oneOf(["Male", "Female", "Other"], "Invalid gender")
+    .default("Male"),
 
   dob: Yup.string(),
 
@@ -32,16 +36,5 @@ export const userSchema = Yup.object({
 
   joined: Yup.string(),
 
-  avatarColor: Yup.string().default(""),
-
-  refId: Yup.string()
-    .nullable()
-    .default(null)
-    .test(
-      "objectId",
-      "Invalid ObjectId",
-      (value) => !value || /^[0-9a-fA-F]{24}$/.test(value),
-    ),
-
-  lastLogin: Yup.string().nullable().default(null),
+  refId: Yup.string().nullable().default(null),
 })
