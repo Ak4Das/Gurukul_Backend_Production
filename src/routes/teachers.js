@@ -35,10 +35,6 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
       const assignmentsOfTheTeacher = assignments.filter(
         (a) => a.teacherId.toString() === teacherObjIdStr,
       )
-      const classTeacherOf = classes.find(
-        (c) =>
-          c.classTeacherId && c.classTeacherId.toString() === teacherObjIdStr,
-      )
 
       const pub = teacher.toObject()
 
@@ -51,9 +47,6 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
           assignmentsOfTheTeacher.map((a) => a.subjectId.toString()),
         ).size,
         assignmentCount: assignmentsOfTheTeacher.length,
-        classTeacherOf: classTeacherOf
-          ? `${classTeacherOf.name} ${classTeacherOf.section} (${classTeacherOf.academicYear})`
-          : null,
       }
     })
 

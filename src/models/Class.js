@@ -5,7 +5,6 @@ const classSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     section: { type: String, required: true, trim: true },
     academicYear: { type: String, required: true, trim: true },
-    classTeacherId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     status: { type: String, enum: ["active", "archived"], default: "active" },
   },
   { timestamps: true },

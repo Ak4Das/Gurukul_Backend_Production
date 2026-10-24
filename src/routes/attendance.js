@@ -73,7 +73,7 @@ router.post("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
       status: r.status || "present",
     }))
 
-    const markedBy = req.user?.fullName || req.user?.username || "Staff"
+    const markedBy = req.user?.username
 
     const doc = await Attendance.findOneAndUpdate(
       { classId, date },

@@ -12,7 +12,6 @@ const attendanceRecordSchema = new mongoose.Schema(
       enum: ["present", "absent", "late", "halfday", "leave"],
       required: true,
     },
-    remarks: { type: String, default: "" },
   },
   { _id: false },
 )
@@ -26,7 +25,7 @@ const attendanceSchema = new mongoose.Schema(
     },
     date: { type: String, required: true }, // 'YYYY-MM-DD'
     records: [attendanceRecordSchema],
-    takenBy: { type: String },
+    markedBy: { type: String, required: true },
   },
   { timestamps: true },
 )

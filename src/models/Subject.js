@@ -10,30 +10,37 @@ const subjectSchema = new mongoose.Schema(
     code: {
       type: String,
       unique: true,
-      sparse: true,
       trim: true,
       uppercase: true,
+      required: true,
     },
     category: {
       type: String,
       enum: ["Core", "Elective", "Vocational", "Extracurricular", "General"],
       default: "Core",
     },
-    type: {
-      type: String,
-      enum: ["Theory", "Practical", "Both"],
-      default: "Theory",
-    },
-    classes: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Class",
+    classIds: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Class",
+        },
+      ],
+      required: true,
+      validate: {
+        validator: function (value) {
+          return value.length >= 1
+        },
+        message: "At least one class is required",
       },
-    ],
-    status: {
-      type: String,
-      enum: ["active", "inactive"],
-      default: "active",
+    },
+    maxMarks: {
+      type: Number,
+      required: true,
+    },
+    passingMarks: {
+      type: Number,
+      required: true,
     },
   },
   {
