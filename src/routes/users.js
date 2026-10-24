@@ -78,7 +78,7 @@ router.post(
       if (existingUser) {
         return res
           .status(400)
-          .json({ error: `Username "${normalizedUsername}" is already taken` })
+          .json({ error: `Username "${normalizedUsername}" is already exist` })
       }
 
       // Pass password as passwordHash to trigger Mongoose pre-save hook

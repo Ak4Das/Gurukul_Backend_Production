@@ -98,7 +98,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     if (!klass) {
       return res.status(400).json({ error: "Please select a valid class" })
     }
-    const rollNo = await nextSeq(`${klass.name} - roll`)
+    const rollNo = await nextSeq(`${klass.name}${klass.section} - roll`)
 
     const studentData = {
       ...others,

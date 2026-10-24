@@ -70,10 +70,6 @@ const feeReceiptSchema = new mongoose.Schema(
       enum: ["cash", "card", "upi", "bank_transfer", "cheque", "other"],
       default: "cash",
     },
-    reference: {
-      type: String,
-      default: "",
-    },
     remarks: {
       type: String,
       default: "",
@@ -86,10 +82,6 @@ const feeReceiptSchema = new mongoose.Schema(
       type: String,
       enum: ["paid", "refunded"],
       default: "paid",
-    },
-    refundReason: {
-      type: String,
-      default: "",
     },
     refundedBy: {
       type: String,

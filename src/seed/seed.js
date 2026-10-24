@@ -735,7 +735,7 @@ async function seed() {
               ? bday(5, 2017)
               : `201${6 + classIdx}-0${(i % 9) + 1}-1${i % 9}`,
       nationality: nationalities[i],
-      curriculum: "CBCS",
+      curriculum: "CBSE",
       englishLevel: eal[i],
       house: houses[i],
       allergies: i === 4 ? "Peanuts" : "",

@@ -64,6 +64,7 @@ const admissionSchema = new mongoose.Schema(
     },
     curriculum: {
       type: String,
+      enum: ["CBSE"],
       required: [true, "Curriculum is required"],
     },
     englishLevel: {

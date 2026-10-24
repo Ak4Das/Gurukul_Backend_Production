@@ -145,7 +145,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
       return res.status(400).json({ error: "Please select a valid class" })
     }
 
-    const rollNo = await nextSeq(`${klass.name} - roll`)
+    const rollNo = await nextSeq(`${klass.name}${klass.section} - roll`)
 
     const year = new Date().getFullYear()
     const seq = await nextSeq("admissionNo")
