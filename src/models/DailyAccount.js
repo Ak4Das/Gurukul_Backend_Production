@@ -42,21 +42,21 @@ const dailyAccountSchema = new mongoose.Schema(
     },
     itemId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "FeeReceipt",
+      ref: "InventoryItem",
     },
     assetName: {
       type: String,
     },
     assetId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "FeeReceipt",
+      ref: "Asset",
     },
     slipNumber: {
       type: String,
     },
     slipId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "FeeReceipt",
+      ref: "SalarySlip",
     },
     amount: {
       type: Number,

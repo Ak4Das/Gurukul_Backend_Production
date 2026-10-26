@@ -1,5 +1,7 @@
+// essential imports
 import { Router } from "express"
 import mongoose from "mongoose"
+// model imports
 import { Student } from "../models/Student.js"
 import { User } from "../models/User.js"
 import { Class } from "../models/Class.js"
@@ -8,13 +10,12 @@ import { Parent } from "../models/Parent.js"
 import { FeeReceipt } from "../models/FeeReceipt.js"
 import { Attendance } from "../models/Attendance.js"
 import { Exam } from "../models/Exam.js"
-import { Discipline } from "../models/Discipline.js"
 import { Helpdesk } from "../models/Helpdesk.js"
-import { Complaint } from "../models/Complaint.js"
 import { Admission } from "../models/Admission.js"
 import { Mark } from "../models/Mark.js"
 import { Assignment } from "../models/Assignment.js"
 import { Timetable } from "../models/Timetable.js"
+// middleware imports
 import { authRequired } from "../middleware/auth.js"
 
 const router = Router()
@@ -42,14 +43,10 @@ router.get("/stats", async (req, res, next) => {
       subjects,
       parents,
       todayFeeStats,
-      outstandingStats,
       attendanceStats,
       activeExams,
-      discipline,
       helpdesk,
-      complaints,
       genderMixStats,
-      severityStats,
       feeTrendStats,
       pendingAdmissions,
       sheetsAwaitingPublish,
@@ -86,17 +83,6 @@ router.get("/stats", async (req, res, next) => {
         },
       ]),
 
-      // Outstanding balances sum across partial/unpaid receipts
-      FeeReceipt.aggregate([
-        { $match: { status: { $in: ["partial", "unpaid"] } } },
-        {
-          $group: {
-            _id: null,
-            outstanding: { $sum: "$balance" },
-          },
-        },
-      ]),
-
       // Attendance records breakdown for today
       Attendance.aggregate([
         { $match: { date: today } },
@@ -122,9 +108,7 @@ router.get("/stats", async (req, res, next) => {
       Exam.countDocuments({ status: { $in: ["scheduled", "ongoing"] } }),
 
       // Open Incident / Support counts
-      Discipline.countDocuments({ status: "open" }),
       Helpdesk.countDocuments({ status: "open" }),
-      Complaint.countDocuments({ status: "open" }),
 
       // Gender distribution aggregation
       Student.aggregate([
@@ -132,16 +116,6 @@ router.get("/stats", async (req, res, next) => {
         {
           $group: {
             _id: { $toLower: { $ifNull: ["$gender", "other"] } },
-            count: { $sum: 1 },
-          },
-        },
-      ]),
-
-      // Discipline incidents by severity aggregation
-      Discipline.aggregate([
-        {
-          $group: {
-            _id: { $ifNull: ["$severity", "low"] },
             count: { $sum: 1 },
           },
         },
@@ -177,12 +151,6 @@ router.get("/stats", async (req, res, next) => {
     const genderMix = {}
     genderMixStats.forEach((g) => {
       genderMix[g._id] = g.count
-    })
-
-    // Format Severity Breakdown
-    const severity = {}
-    severityStats.forEach((s) => {
-      severity[s._id] = s.count
     })
 
     // Format 7-day Fee Trend with 0 fallback
@@ -228,17 +196,14 @@ router.get("/stats", async (req, res, next) => {
       subjects,
       parents,
       todaysCollection: todayFeeStats[0]?.todaysCollection || 0,
-      outstanding: outstandingStats[0]?.outstanding || 0,
+      outstanding: 0,
       attendanceToday: {
         present: attendanceStats[0]?.present || 0,
         marked: attendanceStats[0]?.marked || 0,
       },
       activeExams,
-      openIncidents: discipline,
       openTickets: helpdesk,
-      openComplaints: complaints,
       genderMix,
-      severity,
       feeTrend,
       birthdays,
       pendingAdmissions,
@@ -341,11 +306,6 @@ router.get("/teacher", async (req, res, next) => {
     }
     todaysPeriods.sort((a, b) => a.period - b.period)
 
-    // Identify Class Teacher details
-    const classTeacherOf = classesList.find(
-      (c) => c.classTeacherId?.toString() === teacherId.toString(),
-    )
-
     // Compute stats metrics
     const myClassIdStrings = myClassObjectIds.map((id) => id.toString())
     const draftSheets = marksList.filter((m) =>
@@ -360,8 +320,6 @@ router.get("/teacher", async (req, res, next) => {
       dayName,
       assignments,
       todaysPeriods,
-      classTeacherOf: classTeacherOf ? classLabel(classTeacherOf._id) : null,
-      classTeacherClassId: classTeacherOf?._id || null,
       stats: {
         classes: myClassIdStrings.length,
         subjects: [

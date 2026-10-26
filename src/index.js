@@ -15,11 +15,8 @@ import attendanceRoutes from "./routes/attendance.js"
 import authRoutes from "./routes/auth.js"
 import calendarRoutes from "./routes/calender.js"
 import classesRoutes from "./routes/classes.js"
-import complaintRoutes from "./routes/complaints.js"
-import conductRoutes from "./routes/conduct.js"
 import dailyAccountsRoutes from "./routes/dailyAccounts.js"
 import dashboardRoutes from "./routes/dashboard.js"
-import disciplineRoutes from "./routes/discipline.js"
 import examsRoutes from "./routes/exams.js"
 import feesRoutes from "./routes/fees.js"
 import feeStructuresRoutes from "./routes/feeStructures.js"
@@ -89,11 +86,8 @@ app.use("/api/attendance", attendanceRoutes)
 app.use("/api/auth", authRoutes)
 app.use("/api/calendar", calendarRoutes)
 app.use("/api/classes", classesRoutes)
-app.use("/api/complaints", complaintRoutes)
-app.use("/api/conduct", conductRoutes)
 app.use("/api/daily-accounts", dailyAccountsRoutes)
 app.use("/api/dashboard", dashboardRoutes)
-app.use("/api/discipline", disciplineRoutes)
 app.use("/api/exams", examsRoutes)
 app.use("/api/fees", feesRoutes)
 app.use("/api/fee-structures", feeStructuresRoutes)

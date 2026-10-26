@@ -41,11 +41,8 @@ async function seed() {
       "notices",
       "calendarEvents",
       "logbook",
-      "disciplines",
-      "conduct",
       "activities",
       "helpdesk",
-      "complaints",
       "assets",
       "inventoryItems",
       "stockMovements",
@@ -54,8 +51,6 @@ async function seed() {
       "ptms",
       "settings",
       "counters",
-      "books",
-      "bookIssues",
       "salarySlips",
     ]) {
       await col(name).deleteMany({})
@@ -858,7 +853,6 @@ async function seed() {
     { key: "assetTag", value: 5 },
     { key: "studentUser", value: 12 },
     { key: "parentUser", value: 6 },
-    { key: "bookAcc", value: 10 },
     { key: "salarySlip", value: 5 },
   ])
 
@@ -1406,62 +1400,7 @@ async function seed() {
     },
   ])
 
-  // ---------- Discipline, conduct, activities ----------
-  await col("disciplines").insertMany([
-    {
-      studentId: students[6]._id,
-      studentName: "Student 7 Demo",
-      date: daysAgo(4),
-      incident: "Disrupting class repeatedly",
-      severity: "medium",
-      actionTaken: "Verbal warning, seat changed",
-      parentNotified: true,
-      reportedBy: "Teacher 2",
-      status: "closed",
-    },
-    {
-      studentId: students[2]._id,
-      studentName: "Student 3 Demo",
-      date: daysAgo(2),
-      incident: "Skipped afternoon periods",
-      severity: "high",
-      actionTaken: "Parent meeting scheduled",
-      parentNotified: true,
-      reportedBy: "Supervisor 1",
-      status: "open",
-    },
-    {
-      studentId: students[9]._id,
-      studentName: "Student 10 Demo",
-      date: daysAgo(1),
-      incident: "Incomplete homework 3 days in a row",
-      severity: "low",
-      actionTaken: "Extra practice assigned",
-      parentNotified: false,
-      reportedBy: "Teacher 1",
-      status: "open",
-    },
-  ])
-  await col("conduct").insertMany([
-    {
-      studentId: students[0]._id,
-      studentName: "Student 1 Demo",
-      date: daysAgo(3),
-      type: "merit",
-      note: "Helped organize the class",
-      points: 5,
-      by: "Teacher 2",
-    },
-    {
-      studentId: students[4]._id,
-      studentName: "Student 5 Demo",
-      date: daysAgo(1),
-      type: "merit",
-      note: "Won inter-class quiz",
-      points: 10,
-      by: "Teacher 3",
-    },
-  ])
+  // ---------- activities ----------
   await col("activities").insertMany([
     {
       title: "Football Practice",
@@ -1481,18 +1420,8 @@ async function seed() {
     },
   ])
 
-  // ---------- Helpdesk, complaints ----------
+  // ---------- Helpdesk ----------
   await col("helpdesk").insertMany([
-    {
-      subject: "Cannot download hall ticket",
-      description:
-        "Getting an error when downloading hall ticket for Quarterly exam.",
-      raisedBy: "student1",
-      role: "student",
-      priority: "high",
-      status: "open",
-      category: "Portal",
-    },
     {
       subject: "Fee receipt email not received",
       description: "Paid on Monday but no email receipt yet.",
@@ -1511,27 +1440,6 @@ async function seed() {
       priority: "low",
       status: "open",
       category: "Infrastructure",
-    },
-  ])
-  await col("complaints").insertMany([
-    {
-      subject: "School bus arriving late",
-      description: "Route 2 bus has been 20+ minutes late all week.",
-      raisedBy: "parent1",
-      role: "parent",
-      against: "Transport",
-      status: "open",
-      severity: "medium",
-    },
-    {
-      subject: "Canteen food quality",
-      description: "Food served on Wednesday was stale.",
-      raisedBy: "teacher2",
-      role: "teacher",
-      against: "Canteen",
-      status: "resolved",
-      severity: "high",
-      resolution: "Vendor warned; weekly quality checks started.",
     },
   ])
 
