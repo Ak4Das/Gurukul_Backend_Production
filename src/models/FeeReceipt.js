@@ -67,7 +67,7 @@ const feeReceiptSchema = new mongoose.Schema(
     },
     mode: {
       type: String,
-      enum: ["cash", "card", "upi", "bank_transfer", "cheque", "other"],
+      enum: ["cash", "online", "check", "upi", "card"],
       default: "cash",
     },
     remarks: {
