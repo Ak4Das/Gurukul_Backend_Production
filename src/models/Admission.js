@@ -36,8 +36,8 @@ const admissionSchema = new mongoose.Schema(
     },
     parentName: {
       type: String,
-      default: "",
       trim: true,
+      required: [true, "Guardian name is required"],
     },
     parentRelation: {
       type: String,
@@ -45,8 +45,8 @@ const admissionSchema = new mongoose.Schema(
     },
     parentMobile: {
       type: String,
-      default: "",
       trim: true,
+      required: [true, "Guardian mobile number is required"],
     },
     parentEmail: {
       type: String,
@@ -56,7 +56,7 @@ const admissionSchema = new mongoose.Schema(
     },
     parentOccupation: {
       type: String,
-      default: "",
+      required: [true, "Guardian Occupation is required"],
     },
     nationality: {
       type: String,
@@ -67,23 +67,11 @@ const admissionSchema = new mongoose.Schema(
       enum: ["CBSE"],
       required: [true, "Curriculum is required"],
     },
-    englishLevel: {
-      type: String,
-      default: "",
-    },
-    house: {
-      type: String,
-      default: "",
-    },
     allergies: {
       type: String,
       default: "",
     },
     medicalNotes: {
-      type: String,
-      default: "",
-    },
-    languages: {
       type: String,
       default: "",
     },

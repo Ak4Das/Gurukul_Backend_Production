@@ -188,7 +188,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
             ? "Male"
             : app.parentRelation === "Mother"
               ? "Female"
-              : "",
+              : null,
       })
 
       credentials.parentUsername = pUsername
@@ -213,7 +213,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
       classId,
       rollNo: rollNo || "",
       admissionDate: admissionDate || new Date().toISOString().slice(0, 10),
-      transportRequired: Boolean(transportRequired),
+      transportRequired: transportRequired,
       transportRoute: transportRoute || "",
       parentIds: [parent._id],
       academicYear: app.academicYear || klass.academicYear,
