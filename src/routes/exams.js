@@ -21,7 +21,6 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id)
 }
 
-// ---------- Grade Helper ----------
 function computeGrade(marks, maxMarks, passingMarks) {
   if (marks == null || marks === "") {
     return { grade: "-", pass: false }
@@ -255,7 +254,7 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
       {
         status: "published",
         publishedBy: publishedName,
-        publishedAt: new Date().toISOString(),
+        publishedAt: new Date().toISOString().slice(0, 10),
       },
     )
 
