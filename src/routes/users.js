@@ -98,7 +98,7 @@ router.post(
         joined: joined ? joined : undefined,
       })
 
-      return res.status(201).json(newUser)
+      return res.status(201).json(newUser.toPublicJSON())
     } catch (err) {
       return next(err)
     }
@@ -193,7 +193,7 @@ router.put(
       }
 
       await user.save()
-      return res.json(user)
+      return res.json(user.toPublicJSON())
     } catch (err) {
       return next(err)
     }

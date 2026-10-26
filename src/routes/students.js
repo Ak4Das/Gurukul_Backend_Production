@@ -207,7 +207,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       ...b,
     }
 
-    if (studentObj.classId.toString() !== b.classId) {
+    if (b.classId && studentObj.classId.toString() !== b.classId) {
       const klass = await Class.findById(b.classId)
       if (!klass) {
         return res.status(400).json({ error: "Please select a valid class" })
@@ -233,7 +233,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     await User.findOneAndUpdate(
       { refId: req.params.id },
       {
-        fullName: `${b.firstName} ${b.lastName || ""}`.trim(),
+        fullName: b.firstName && `${b.firstName} ${b.lastName || ""}`.trim(),
         status: b.status,
         gender: b.gender,
         address: b.address,

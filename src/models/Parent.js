@@ -13,8 +13,8 @@ const parentSchema = new mongoose.Schema(
     },
     mobile: {
       type: String,
-      default: "",
       trim: true,
+      required: [true, "Mobile number is required"],
     },
     email: {
       type: String,
@@ -24,11 +24,11 @@ const parentSchema = new mongoose.Schema(
     },
     occupation: {
       type: String,
-      default: "",
+      required: [true, "Parent occupation is required"],
     },
     address: {
       type: String,
-      default: "",
+      required: [true, "Parent address is required"],
     },
     status: {
       type: String,
