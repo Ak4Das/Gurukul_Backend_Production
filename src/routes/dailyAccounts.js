@@ -5,11 +5,7 @@ import mongoose from "mongoose"
 import { DailyAccount } from "../models/DailyAccount.js"
 // middleware imports
 import { authRequired, allowRoles, STAFF } from "../middleware/auth.js"
-import { FeeReceipt } from "../models/FeeReceipt.js"
 import { InventoryItem } from "../models/InventoryItem.js"
-import { SalarySlip } from "../models/SalarySlip.js"
-import { User } from "../models/User.js"
-import { Asset } from "../models/Asset.js"
 
 const router = Router()
 
@@ -101,51 +97,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
   body.recordedBy = req.user.username
 
-  if (body.category !== "Fees") {
-    delete body.receiptNumber
-  } else {
-    if (!body.receiptNumber) {
-      return res.status(404).json({ error: "Fee Receipt number is required" })
-    }
-
-    const receipt = await FeeReceipt.findOne({
-      receiptNo: body.receiptNumber,
-    }).lean()
-
-    if (!receipt) {
-      return res.status(404).json({ error: "Fee Receipt not found" })
-    }
-
-    if (receipt.status !== "paid") {
-      return res.status(400).json({
-        error: "Only paid fee receipts can be recorded as fee income",
-      })
-    }
-
-    if (Number(body.amount) !== Number(receipt.amountPaid)) {
-      return res.status(400).json({
-        error: "Amount does not match the fee receipt amount paid",
-      })
-    }
-
-    const existingEntry = await DailyAccount.findOne({
-      receiptId: receipt._id,
-      category: "Fees",
-    }).lean()
-
-    if (existingEntry) {
-      return res.status(409).json({
-        error: "This fee receipt has already been recorded in Daily Accounts",
-      })
-    }
-
-    body.receiptId = receipt._id
-
-    if (!body.description) {
-      body.description = `Fee receipt ${receipt.receiptNo} — ${receipt.studentName}`
-    }
-  }
-
   if (body.category !== "Supplies") {
     delete body.itemName
   } else {
@@ -162,48 +113,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     body.itemId = item._id
     if (!body.description) {
       body.description = `Item ${item.name} — ${item.category}`
-    }
-  }
-
-  if (body.category !== "Salary") {
-    delete body.slipNumber
-  } else {
-    if (!body.slipNumber) {
-      return res.status(404).json({ error: "Slip number is required" })
-    }
-
-    const slip = await SalarySlip.findOne({ slipNo: body.slipNumber }).lean()
-
-    if (!slip) {
-      return res.status(404).json({ error: "Slip not found" })
-    }
-
-    if (slip.status !== "paid") {
-      return res.status(400).json({
-        error: "Only paid salary slips can be recorded as fee income",
-      })
-    }
-
-    if (Number(body.amount) !== Number(slip.netPay)) {
-      return res.status(400).json({
-        error: "Amount does not match the salary slip net pay",
-      })
-    }
-
-    const existingEntry = await DailyAccount.findOne({
-      slipId: slip._id,
-      category: "Salary",
-    }).lean()
-
-    if (existingEntry) {
-      return res.status(409).json({
-        error: "This Salary Slip has already been recorded in Daily Accounts",
-      })
-    }
-
-    body.slipId = slip._id
-    if (!body.description) {
-      body.description = `Salary ${slip.month} — ${slip.staffName} (${slip.slipNo})`
     }
   }
 
@@ -233,52 +142,6 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
     body.recordedBy = req.user.username
 
-    if (body.category !== "Fees") {
-      delete body.receiptNumber
-      delete body.receiptId
-    } else {
-      if (!body.receiptNumber) {
-        return res.status(404).json({ error: "Fee Receipt number is required" })
-      }
-
-      const receipt = await FeeReceipt.findOne({
-        receiptNo: body.receiptNumber,
-      }).lean()
-
-      if (!receipt) {
-        return res.status(404).json({ error: "Fee Receipt not found" })
-      }
-
-      if (receipt.status !== "paid") {
-        return res.status(400).json({
-          error: "Only paid fee receipts can be recorded as fee income",
-        })
-      }
-
-      if (Number(body.amount) !== Number(receipt.amountPaid)) {
-        return res.status(400).json({
-          error: "Amount does not match the fee receipt amount paid",
-        })
-      }
-
-      const existingEntry = await DailyAccount.findOne({
-        receiptId: receipt._id,
-        category: "Fees",
-      }).lean()
-
-      if (existingEntry) {
-        return res.status(409).json({
-          error: "This fee receipt has already been recorded in Daily Accounts",
-        })
-      }
-
-      body.receiptId = receipt._id
-
-      if (!body.description) {
-        body.description = `Fee receipt ${receipt.receiptNo} — ${receipt.studentName}`
-      }
-    }
-
     if (body.category !== "Supplies") {
       delete body.itemName
       delete body.itemId
@@ -299,81 +162,16 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       }
     }
 
-    if (body.category !== "Salary") {
-      delete body.slipNumber
-      delete body.slipId
-    } else {
-      if (!body.slipNumber) {
-        return res.status(404).json({ error: "Slip number is required" })
-      }
-
-      const slip = await SalarySlip.findOne({ slipNo: body.slipNumber }).lean()
-
-      if (!slip) {
-        return res.status(404).json({ error: "Slip not found" })
-      }
-
-      if (slip.status !== "paid") {
-        return res.status(400).json({
-          error: "Only paid salary slips can be recorded as fee income",
-        })
-      }
-
-      if (Number(body.amount) !== Number(slip.netPay)) {
-        return res.status(400).json({
-          error: "Amount does not match the salary slip net pay",
-        })
-      }
-
-      const existingEntry = await DailyAccount.findOne({
-        slipId: slip._id,
-        category: "Salary",
-      }).lean()
-
-      if (existingEntry) {
-        return res.status(409).json({
-          error: "This Salary Slip has already been recorded in Daily Accounts",
-        })
-      }
-
-      body.slipId = slip._id
-      if (!body.description) {
-        body.description = `Salary ${slip.month} — ${slip.staffName} (${slip.slipNo})`
-      }
-    }
-
     const unset = {}
 
-    if (body.category === "Fees") {
+    if (body.category === "Supplies") {
+      unset.assetName = ""
+      unset.assetId = ""
+    }else {
       unset.itemName = ""
       unset.itemId = ""
       unset.assetName = ""
       unset.assetId = ""
-      unset.slipNumber = ""
-      unset.slipId = ""
-    } else if (body.category === "Supplies") {
-      unset.receiptNumber = ""
-      unset.receiptId = ""
-      unset.assetName = ""
-      unset.assetId = ""
-      unset.slipNumber = ""
-      unset.slipId = ""
-    } else if (body.category === "Salary") {
-      unset.receiptNumber = ""
-      unset.receiptId = ""
-      unset.itemName = ""
-      unset.itemId = ""
-      unset.assetName = ""
-      unset.assetId = ""
-    } else {
-      unset.receiptNumber = ""
-      unset.receiptId = ""
-      unset.itemName = ""
-      unset.itemId = ""
-      unset.assetName = ""
-      unset.assetId = ""
-      unset.slipNumber = ""
-      unset.slipId = ""
     }
 
     const updated = await DailyAccount.findByIdAndUpdate(

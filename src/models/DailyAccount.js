@@ -21,6 +21,8 @@ const dailyAccountSchema = new mongoose.Schema(
         "Supplies",
         "Salary",
         "Transport",
+        "Maintenance",
+        "Assets",
       ],
       required: true,
     },
