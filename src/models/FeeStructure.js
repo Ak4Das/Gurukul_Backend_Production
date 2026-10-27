@@ -22,7 +22,7 @@ const feeStructureSchema = new mongoose.Schema(
     },
     frequency: {
       type: String,
-      enum: ["monthly", "annually"],
+      enum: ["one time", "monthly", "quarterly", "annually"],
       default: "monthly",
     },
     classIds: {
@@ -35,7 +35,8 @@ const feeStructureSchema = new mongoose.Schema(
           },
           amount: {
             type: Number,
-            required: true,
+            required: [true, "Fee amount is required"],
+            min: [0, "Fee amount cannot be negative"],
           },
         },
       ],
