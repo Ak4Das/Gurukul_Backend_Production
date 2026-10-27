@@ -93,17 +93,13 @@ router.get("/:id", async (req, res, next) => {
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   const body = { ...req.body }
 
-  if (!body.recordedBy) {
-    return res.status(404).json({ error: "recordedBy field is required" })
+  if (!req.user?.username) {
+    return res.status(401).json({
+      error: "Authenticated user information is missing",
+    })
   }
 
-  const recordedByUser = await User.findOne({
-    username: body.recordedBy,
-  })
-
-  if (!recordedByUser) {
-    return res.status(404).json({ error: "recordedBy user not found" })
-  }
+  body.recordedBy = req.user.username
 
   if (body.category !== "Fees") {
     delete body.receiptNumber
@@ -120,7 +116,31 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       return res.status(404).json({ error: "Fee Receipt not found" })
     }
 
+    if (receipt.status !== "paid") {
+      return res.status(400).json({
+        error: "Only paid fee receipts can be recorded as fee income",
+      })
+    }
+
+    if (Number(body.amount) !== Number(receipt.amountPaid)) {
+      return res.status(400).json({
+        error: "Amount does not match the fee receipt amount paid",
+      })
+    }
+
+    const existingEntry = await DailyAccount.findOne({
+      receiptId: receipt._id,
+      category: "Fees",
+    }).lean()
+
+    if (existingEntry) {
+      return res.status(409).json({
+        error: "This fee receipt has already been recorded in Daily Accounts",
+      })
+    }
+
     body.receiptId = receipt._id
+
     if (!body.description) {
       body.description = `Fee receipt ${receipt.receiptNo} — ${receipt.studentName}`
     }
@@ -156,6 +176,29 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
     if (!slip) {
       return res.status(404).json({ error: "Slip not found" })
+    }
+
+    if (slip.status !== "paid") {
+      return res.status(400).json({
+        error: "Only paid salary slips can be recorded as fee income",
+      })
+    }
+
+    if (Number(body.amount) !== Number(slip.netPay)) {
+      return res.status(400).json({
+        error: "Amount does not match the salary slip net pay",
+      })
+    }
+
+    const existingEntry = await DailyAccount.findOne({
+      slipId: slip._id,
+      category: "Salary",
+    }).lean()
+
+    if (existingEntry) {
+      return res.status(409).json({
+        error: "This Salary Slip has already been recorded in Daily Accounts",
+      })
     }
 
     body.slipId = slip._id
@@ -203,17 +246,13 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     let body = { ...req.body }
     delete body._id
 
-    if (!body.recordedBy) {
-      return res.status(404).json({ error: "recordedBy field is required" })
+    if (!req.user?.username) {
+      return res.status(401).json({
+        error: "Authenticated user information is missing",
+      })
     }
 
-    const recordedByUser = await User.findOne({
-      username: body.recordedBy,
-    })
-
-    if (!recordedByUser) {
-      return res.status(404).json({ error: "recordedBy user not found" })
-    }
+    body.recordedBy = req.user.username
 
     if (body.category !== "Fees") {
       delete body.receiptNumber
@@ -231,7 +270,31 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
         return res.status(404).json({ error: "Fee Receipt not found" })
       }
 
+      if (receipt.status !== "paid") {
+        return res.status(400).json({
+          error: "Only paid fee receipts can be recorded as fee income",
+        })
+      }
+
+      if (Number(body.amount) !== Number(receipt.amountPaid)) {
+        return res.status(400).json({
+          error: "Amount does not match the fee receipt amount paid",
+        })
+      }
+
+      const existingEntry = await DailyAccount.findOne({
+        receiptId: receipt._id,
+        category: "Fees",
+      }).lean()
+
+      if (existingEntry) {
+        return res.status(409).json({
+          error: "This fee receipt has already been recorded in Daily Accounts",
+        })
+      }
+
       body.receiptId = receipt._id
+
       if (!body.description) {
         body.description = `Fee receipt ${receipt.receiptNo} — ${receipt.studentName}`
       }
@@ -269,6 +332,29 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
       if (!slip) {
         return res.status(404).json({ error: "Slip not found" })
+      }
+
+      if (slip.status !== "paid") {
+        return res.status(400).json({
+          error: "Only paid salary slips can be recorded as fee income",
+        })
+      }
+
+      if (Number(body.amount) !== Number(slip.netPay)) {
+        return res.status(400).json({
+          error: "Amount does not match the salary slip net pay",
+        })
+      }
+
+      const existingEntry = await DailyAccount.findOne({
+        slipId: slip._id,
+        category: "Salary",
+      }).lean()
+
+      if (existingEntry) {
+        return res.status(409).json({
+          error: "This Salary Slip has already been recorded in Daily Accounts",
+        })
       }
 
       body.slipId = slip._id
