@@ -196,12 +196,12 @@ router.post("/substitutes", allowRoles(...STAFF), async (req, res, next) => {
   try {
     const {
       absentTeacherId,
+      absentTeacherName,
       substituteTeacherId,
+      substituteTeacherName,
       date,
-      periodId,
-      classId,
-      subjectId,
-      remarks,
+      periods,
+      notes,
     } = req.body
 
     if (!absentTeacherId || !substituteTeacherId || !date) {
@@ -219,13 +219,12 @@ router.post("/substitutes", allowRoles(...STAFF), async (req, res, next) => {
 
     const substitute = await Substitute.create({
       absentTeacherId,
+      absentTeacherName,
       substituteTeacherId,
+      substituteTeacherName,
       date: String(date),
-      periodId: periodId ? String(periodId) : "",
-      classId: classId && isValidObjectId(classId) ? classId : undefined,
-      subjectId:
-        subjectId && isValidObjectId(subjectId) ? subjectId : undefined,
-      remarks: remarks ? String(remarks) : "",
+      periods,
+      notes,
       status: "allocated",
     })
 

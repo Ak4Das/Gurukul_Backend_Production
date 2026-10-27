@@ -207,27 +207,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     }
   }
 
-  if (body.category !== "Maintenance") {
-    delete body.assetName
-  } else {
-    if (!body.assetName) {
-      return res.status(404).json({ error: "Asset name is required" })
-    }
-
-    const asset = await Asset.findOne({
-      name: body.assetName,
-    }).lean()
-
-    if (!asset) {
-      return res.status(404).json({ error: "Asset not found" })
-    }
-
-    body.assetId = asset._id
-    if (!body.description) {
-      body.description = `${asset.name} (${asset.tag}): ${asset.category}`
-    }
-  }
-
   try {
     const dailyAccount = await DailyAccount.create(body)
     return res.status(201).json(dailyAccount)
@@ -363,28 +342,6 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       }
     }
 
-    if (body.category !== "Maintenance") {
-      delete body.assetName
-      delete body.assetId
-    } else {
-      if (!body.assetName) {
-        return res.status(404).json({ error: "Asset name is required" })
-      }
-
-      const asset = await Asset.findOne({
-        name: body.assetName,
-      }).lean()
-
-      if (!asset) {
-        return res.status(404).json({ error: "Asset not found" })
-      }
-
-      body.assetId = asset._id
-      if (!body.description) {
-        body.description = `${asset.name} (${asset.tag}): ${asset.category}`
-      }
-    }
-
     const unset = {}
 
     if (body.category === "Fees") {
@@ -408,13 +365,6 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       unset.itemId = ""
       unset.assetName = ""
       unset.assetId = ""
-    } else if (body.category === "Maintenance") {
-      unset.receiptNumber = ""
-      unset.receiptId = ""
-      unset.itemName = ""
-      unset.itemId = ""
-      unset.slipNumber = ""
-      unset.slipId = ""
     } else {
       unset.receiptNumber = ""
       unset.receiptId = ""

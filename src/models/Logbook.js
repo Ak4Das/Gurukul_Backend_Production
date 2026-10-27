@@ -2,11 +2,6 @@ import mongoose from "mongoose"
 
 const logbookSchema = new mongoose.Schema(
   {
-    teacherId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      index: true,
-    },
     teacherName: {
       type: String,
       required: [true, "Teacher name is required"],

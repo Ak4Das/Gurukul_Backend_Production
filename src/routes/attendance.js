@@ -87,35 +87,6 @@ router.post("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
   }
 })
 
-//! GET /attendance/copy - Copy attendance from a previous date
-router.get("/copy", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
-  try {
-    const { classId, fromDate } = req.query
-
-    if (!classId || !fromDate) {
-      return res
-        .status(400)
-        .json({ error: "classId and fromDate are required" })
-    }
-
-    if (!isValidObjectId(classId)) {
-      return res.status(400).json({ error: "Invalid classId format" })
-    }
-
-    const source = await Attendance.findOne({ classId, date: fromDate }).lean()
-
-    if (!source) {
-      return res
-        .status(404)
-        .json({ error: `No attendance saved on ${fromDate}` })
-    }
-
-    return res.json(source)
-  } catch (err) {
-    return next(err)
-  }
-})
-
 //! GET /attendance/summary/week - Last 7 days summary for dashboard
 router.get("/summary/week", async (req, res, next) => {
   try {
