@@ -88,7 +88,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 })
 
 // ==========================================
-// POST /inventory/:id/move - Stock movement (in | issue | adjust)
+// POST /inventory/:id/move - Stock movement (in | issue)
 // ==========================================
 router.post("/:id/move", allowRoles(...STAFF), async (req, res, next) => {
   try {
@@ -104,25 +104,25 @@ router.post("/:id/move", allowRoles(...STAFF), async (req, res, next) => {
     const { type, quantity, note, issuedTo } = req.body
     const qty = Number(quantity)
 
-    if (!["in", "issue", "adjust"].includes(type) || Number.isNaN(qty)) {
-      return res
-        .status(400)
-        .json({ error: "Valid movement type and quantity are required" })
+    if (!["in", "issue"].includes(type) || !Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({
+        error:
+          "Valid movement type and positive whole-number quantity are required",
+      })
     }
 
     let newQty = item.quantity || 0
+
     if (type === "in") {
-      newQty += Math.abs(qty)
-    } else if (type === "issue") {
-      if (Math.abs(qty) > newQty) {
-        return res
-          .status(400)
-          .json({ error: `Only ${newQty} ${item.unit} in stock` })
-      }
-      newQty -= Math.abs(qty)
+      newQty += qty
     } else {
-      // adjust = set absolute quantity
-      newQty = qty
+      if (qty > newQty) {
+        return res.status(400).json({
+          error: `Only ${newQty} ${item.unit} in stock`,
+        })
+      }
+
+      newQty -= qty
     }
 
     const today = new Date().toISOString().slice(0, 10)
@@ -131,7 +131,6 @@ router.post("/:id/move", allowRoles(...STAFF), async (req, res, next) => {
 
     await StockMovement.create({
       itemId: item._id,
-      itemName: item.name,
       type,
       quantity: qty,
       balanceAfter: newQty,

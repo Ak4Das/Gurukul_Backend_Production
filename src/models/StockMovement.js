@@ -7,13 +7,9 @@ const stockMovementSchema = new mongoose.Schema(
       ref: "InventoryItem",
       required: true,
     },
-    itemName: {
-      type: String,
-      required: true,
-    },
     type: {
       type: String,
-      enum: ["in", "issue", "adjust"],
+      enum: ["in", "issue"],
       required: true,
     },
     quantity: {
