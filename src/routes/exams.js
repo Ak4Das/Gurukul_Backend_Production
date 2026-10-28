@@ -380,11 +380,22 @@ router.get("/:examId/results", async (req, res, next) => {
       query.classId = classId
     }
 
-    const [sheets, subjects, students] = await Promise.all([
+    const [sheets, subjects] = await Promise.all([
       Mark.find(query).lean(),
       Subject.find({}).lean(),
-      Student.find(classId ? { classId } : {}).lean(),
     ])
+
+    const studentIds = [
+      ...new Set(
+        sheets.flatMap((sheet) =>
+          (sheet.entries || []).map((entry) => entry.studentId?.toString()),
+        ),
+      ),
+    ]
+
+    const students = await Student.find({
+      _id: { $in: studentIds },
+    }).lean()
 
     const subjectMap = new Map(subjects.map((s) => [s._id.toString(), s]))
 
