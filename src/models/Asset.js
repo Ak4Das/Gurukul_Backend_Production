@@ -40,7 +40,7 @@ const assetSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["in-use", "in-repair", "decommissioned", "available"],
+      enum: ["in-use", "in-repair", "available"],
       default: "in-use",
     },
     location: {

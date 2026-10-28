@@ -37,8 +37,11 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
     const b = req.body
-    if (!b.name) {
-      return res.status(400).json({ error: "Asset name is required" })
+
+    if (!b.name?.trim()) {
+      return res.status(400).json({
+        error: "Asset name is required",
+      })
     }
 
     const seq = await nextSeq("assetTag")
@@ -51,6 +54,22 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       ...b,
     })
 
+    // Register asset purchase in Daily Accounts
+    if (Number(doc.cost) > 0) {
+      await DailyAccount.create({
+        date: doc.purchaseDate || new Date().toISOString().slice(0, 10),
+        type: "expense",
+        category: "Assets",
+        description: `Asset purchase: ${doc.name} (${doc.tag})`,
+        amount: Number(doc.cost),
+        mode: "cash",
+        recordedBy:
+          req.user?.fullName || req.user?.name || req.user?.username || "Staff",
+        assetId: doc._id,
+        assetName: doc.name,
+      })
+    }
+
     return res.status(201).json(doc)
   } catch (err) {
     return next(err)
@@ -59,26 +78,126 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! PUT /assets/:id - Update asset details
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid asset ID format" })
+      return res.status(400).json({
+        error: "Invalid asset ID format",
+      })
     }
 
-    const b = { ...req.body }
-    delete b._id
+    let updatedAsset
 
-    const updated = await Asset.findByIdAndUpdate(req.params.id, b, {
-      new: true,
-      runValidators: true,
-    }).lean()
+    await session.withTransaction(async () => {
+      // Find the existing asset first
+      const existingAsset = await Asset.findById(req.params.id)
+        .session(session)
+        .lean()
 
-    if (!updated) {
-      return res.status(404).json({ error: "Asset not found" })
-    }
+      if (!existingAsset) {
+        throw new Error("ASSET_NOT_FOUND")
+      }
 
-    return res.json(updated)
+      // Only allow editable asset fields
+      const { name, category, location, purchaseDate, cost, status } = req.body
+
+      const updateData = {
+        name,
+        category,
+        location,
+        purchaseDate,
+        cost,
+        status,
+      }
+
+      // Update Asset
+      updatedAsset = await Asset.findByIdAndUpdate(req.params.id, updateData, {
+        new: true,
+        runValidators: true,
+        session,
+      }).lean()
+
+      if (!updatedAsset) {
+        throw new Error("ASSET_NOT_FOUND")
+      }
+
+      // Find the Daily Account entry representing
+      // the original purchase of this asset.
+      const purchaseAccount = await DailyAccount.findOne({
+        assetId: updatedAsset._id,
+        category: "Assets",
+        type: "expense",
+      }).session(session)
+
+      const newCost = Number(updatedAsset.cost) || 0
+
+      // --------------------------------------------------
+      // Case 1: Asset still has a purchase cost
+      // --------------------------------------------------
+      if (newCost > 0) {
+        const purchaseDate =
+          updatedAsset.purchaseDate ||
+          existingAsset.purchaseDate ||
+          new Date().toISOString().slice(0, 10)
+
+        const description = `Asset purchase: ${updatedAsset.name} (${updatedAsset.tag})`
+
+        if (purchaseAccount) {
+          // Update existing purchase expense
+          purchaseAccount.date = purchaseDate
+          purchaseAccount.description = description
+          purchaseAccount.amount = newCost
+          purchaseAccount.assetName = updatedAsset.name
+
+          await purchaseAccount.save({ session })
+        } else {
+          // Handles an old asset that was created before
+          // purchase-account registration was implemented.
+          await DailyAccount.create(
+            [
+              {
+                date: purchaseDate,
+                type: "expense",
+                category: "Assets",
+                description,
+                amount: newCost,
+                mode: "cash",
+                recordedBy:
+                  req.user?.fullName ||
+                  req.user?.name ||
+                  req.user?.username ||
+                  "Staff",
+                assetId: updatedAsset._id,
+                assetName: updatedAsset.name,
+              },
+            ],
+            { session },
+          )
+        }
+      }
+
+      // --------------------------------------------------
+      // Case 2: Asset cost changed to zero
+      // --------------------------------------------------
+      else if (purchaseAccount) {
+        await DailyAccount.deleteOne({
+          _id: purchaseAccount._id,
+        }).session(session)
+      }
+    })
+
+    return res.json(updatedAsset)
   } catch (err) {
+    if (err.message === "ASSET_NOT_FOUND") {
+      return res.status(404).json({
+        error: "Asset not found",
+      })
+    }
+
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
