@@ -13,7 +13,6 @@ import { Exam } from "../models/Exam.js"
 import { Helpdesk } from "../models/Helpdesk.js"
 import { Admission } from "../models/Admission.js"
 import { Mark } from "../models/Mark.js"
-import { Assignment } from "../models/Assignment.js"
 import { Timetable } from "../models/Timetable.js"
 // middleware imports
 import { authRequired } from "../middleware/auth.js"
@@ -218,23 +217,24 @@ router.get("/stats", async (req, res, next) => {
 // ==========================================
 // GET /dashboard/teacher - Teacher Specific Dashboard
 // ==========================================
+
 router.get("/teacher", async (req, res, next) => {
   try {
     const teacherId = req.user.id || req.user._id
 
     const [
-      rawAssignments,
       classesList,
       subjectsList,
       timetablesList,
       activeExamsCount,
       marksList,
     ] = await Promise.all([
-      Assignment.find({ teacherId }).lean(),
       Class.find({}).lean(),
       Subject.find({}).lean(),
       Timetable.find({}).lean(),
-      Exam.countDocuments({ status: { $in: ["scheduled", "ongoing"] } }),
+      Exam.countDocuments({
+        status: { $in: ["scheduled", "ongoing"] },
+      }),
       Mark.find({ status: "draft" }).select("classId").lean(),
     ])
 
@@ -245,20 +245,47 @@ router.get("/teacher", async (req, res, next) => {
         `${c.name} ${c.section} (${c.academicYear})`,
       ]),
     )
+
     const subjectMap = new Map(
       subjectsList.map((s) => [s._id.toString(), s.name]),
     )
 
     const classLabel = (id) => (id ? classMap.get(id.toString()) || "?" : "?")
 
-    // Extract unique assigned class IDs
+    // Extract teacher's timetable periods
+    const teacherPeriods = []
+
+    for (const tt of timetablesList) {
+      for (const p of tt.periods || []) {
+        if (p.teacherId?.toString() === teacherId.toString()) {
+          teacherPeriods.push({
+            ...(p.toObject ? p.toObject() : p),
+            classId: tt.classId,
+            className: classLabel(tt.classId),
+            subjectName:
+              p.subjectName || subjectMap.get(p.subjectId?.toString()) || "?",
+          })
+        }
+      }
+    }
+
+    // Extract unique classes taught by teacher
     const myClassObjectIds = [
-      ...new Set(rawAssignments.map((a) => a.classId?.toString())),
+      ...new Set(
+        teacherPeriods.map((p) => p.classId?.toString()).filter(Boolean),
+      ),
     ]
-      .filter(Boolean)
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
       .map((id) => new mongoose.Types.ObjectId(id))
 
-    // Aggregate student counts per assigned class
+    // Extract unique subjects taught by teacher
+    const mySubjectIds = [
+      ...new Set(
+        teacherPeriods.map((p) => p.subjectId?.toString()).filter(Boolean),
+      ),
+    ]
+
+    // Aggregate student counts per teacher's class
     const studentCountPerClass = await Student.aggregate([
       {
         $match: {
@@ -278,36 +305,18 @@ router.get("/teacher", async (req, res, next) => {
       studentCountPerClass.map((sc) => [sc._id.toString(), sc.count]),
     )
 
-    // Format Assignments array
-    const assignments = rawAssignments.map((a) => ({
-      ...a,
-      className: classLabel(a.classId),
-      subjectName: subjectMap.get(a.subjectId?.toString()) || "?",
-      studentCount: studentCountMap.get(a.classId?.toString()) || 0,
-    }))
+    // Today's Periods
+    const dayName = new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+    })
 
-    // Today's Periods Extraction
-    const dayName = new Date().toLocaleDateString("en-US", { weekday: "long" })
-    const todaysPeriods = []
-
-    for (const tt of timetablesList) {
-      for (const p of tt.periods || []) {
-        if (
-          p.teacherId?.toString() === teacherId.toString() &&
-          p.day === dayName
-        ) {
-          todaysPeriods.push({
-            ...p,
-            className: classLabel(tt.classId),
-            classId: tt.classId,
-          })
-        }
-      }
-    }
-    todaysPeriods.sort((a, b) => a.period - b.period)
+    const todaysPeriods = teacherPeriods
+      .filter((p) => p.day === dayName)
+      .sort((a, b) => a.period - b.period)
 
     // Compute stats metrics
     const myClassIdStrings = myClassObjectIds.map((id) => id.toString())
+
     const draftSheets = marksList.filter((m) =>
       myClassIdStrings.includes(m.classId?.toString()),
     ).length
@@ -318,15 +327,12 @@ router.get("/teacher", async (req, res, next) => {
 
     return res.json({
       dayName,
-      assignments,
+
       todaysPeriods,
+
       stats: {
         classes: myClassIdStrings.length,
-        subjects: [
-          ...new Set(
-            rawAssignments.map((a) => a.subjectId?.toString()).filter(Boolean),
-          ),
-        ].length,
+        subjects: mySubjectIds.length,
         students: totalStudentsInMyClasses,
         draftSheets,
         activeExams: activeExamsCount,

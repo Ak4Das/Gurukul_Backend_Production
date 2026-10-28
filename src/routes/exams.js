@@ -248,9 +248,76 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
       return res.status(400).json({ error: "Invalid exam ID" })
     }
 
+    const exam = await Exam.findById(req.params.examId).lean()
+
+    if (!exam) {
+      return res.status(404).json({ error: "Exam not found" })
+    }
+
+    // Get all subjects assigned to any class of this exam
+    const subjects = await Subject.find({
+      classIds: { $in: exam.classIds },
+    }).lean()
+
+    // Build all expected class + subject combinations
+    const expectedSheets = []
+
+    for (const classId of exam.classIds) {
+      for (const subject of subjects) {
+        const subjectBelongsToClass = subject.classIds.some(
+          (id) => id.toString() === classId.toString(),
+        )
+
+        if (subjectBelongsToClass) {
+          expectedSheets.push({
+            classId: classId.toString(),
+            subjectId: subject._id.toString(),
+            subjectName: subject.name,
+          })
+        }
+      }
+    }
+
+    // Get all mark sheets created for this exam
+    const marks = await Mark.find({
+      examId: req.params.examId,
+    }).lean()
+
+    // Create a quick lookup of submitted mark sheets
+    const submittedSheets = new Set(
+      marks
+        .filter((mark) => mark.status === "submitted")
+        .map(
+          (mark) => `${mark.classId.toString()}_${mark.subjectId.toString()}`,
+        ),
+    )
+
+    // Find expected papers that are not submitted
+    const pendingSheets = expectedSheets.filter(
+      (sheet) => !submittedSheets.has(`${sheet.classId}_${sheet.subjectId}`),
+    )
+
+    // Do not publish until every expected paper is submitted
+    if (pendingSheets.length > 0) {
+      return res.status(400).json({
+        error:
+          "All subject papers must be submitted by teachers before publishing.",
+        pendingSheets: pendingSheets.map((sheet) => ({
+          classId: sheet.classId,
+          subjectId: sheet.subjectId,
+          subjectName: sheet.subjectName,
+        })),
+      })
+    }
+
+    // Publish all submitted mark sheets
     const publishedName = req.user?.username || "Admin"
+
     const updateResult = await Mark.updateMany(
-      { examId: req.params.examId, status: { $in: ["submitted", "locked"] } },
+      {
+        examId: req.params.examId,
+        status: "submitted",
+      },
       {
         status: "published",
         publishedBy: publishedName,
@@ -258,29 +325,60 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
       },
     )
 
-    await Exam.findByIdAndUpdate(req.params.examId, { status: "published" })
+    // Update exam status
+    await Exam.findByIdAndUpdate(req.params.examId, {
+      status: "published",
+    })
 
-    return res.json({ ok: true, publishedSheets: updateResult.modifiedCount })
+    return res.json({
+      ok: true,
+      publishedSheets: updateResult.modifiedCount,
+    })
   } catch (err) {
     return next(err)
   }
 })
 
 // ==========================================
-// GET /exams/:examId/results - Exam results overview & toppers list
+// GET /exams/:examId/results
+// Exam results overview & toppers list
 // ==========================================
 router.get("/:examId/results", async (req, res, next) => {
   try {
     const { classId } = req.query
+
     if (
       !isValidObjectId(req.params.examId) ||
       (classId && !isValidObjectId(classId))
     ) {
-      return res.status(400).json({ error: "Invalid ID parameters" })
+      return res.status(400).json({
+        error: "Invalid ID parameters",
+      })
     }
 
-    const query = { examId: req.params.examId }
-    if (classId) query.classId = classId
+    // Get exam first so we can check its status
+    const exam = await Exam.findById(req.params.examId).lean()
+
+    if (!exam) {
+      return res.status(404).json({
+        error: "Exam not found",
+      })
+    }
+
+    // Results are available only after the exam is published
+    if (exam.status !== "published") {
+      return res.status(400).json({
+        error: "Results are available only after the exam is published.",
+      })
+    }
+
+    const query = {
+      examId: req.params.examId,
+    }
+
+    if (classId) {
+      query.classId = classId
+    }
 
     const [sheets, subjects, students] = await Promise.all([
       Mark.find(query).lean(),
@@ -289,6 +387,7 @@ router.get("/:examId/results", async (req, res, next) => {
     ])
 
     const subjectMap = new Map(subjects.map((s) => [s._id.toString(), s]))
+
     const studentMap = new Map(students.map((s) => [s._id.toString(), s]))
 
     const perStudent = {}
@@ -296,20 +395,30 @@ router.get("/:examId/results", async (req, res, next) => {
 
     for (const sheet of sheets) {
       const subj = subjectMap.get(sheet.subjectId?.toString())
+
       for (const e of sheet.entries || []) {
         if (e.marks == null) continue
+
         const studentIdStr = e.studentId?.toString()
+
         if (!perStudent[studentIdStr]) {
-          perStudent[studentIdStr] = { total: 0, max: 0, subjects: [] }
+          perStudent[studentIdStr] = {
+            total: 0,
+            max: 0,
+            subjects: [],
+          }
         }
+
         perStudent[studentIdStr].total += e.marks
         perStudent[studentIdStr].max += subj?.maxMarks || 100
+
         perStudent[studentIdStr].subjects.push({
           subject: subj?.name,
           marks: e.marks,
           grade: e.grade,
           maxMarks: subj?.maxMarks,
         })
+
         gradeDist[e.grade] = (gradeDist[e.grade] || 0) + 1
       }
     }
@@ -317,6 +426,7 @@ router.get("/:examId/results", async (req, res, next) => {
     const ranked = Object.entries(perStudent)
       .map(([studentId, v]) => {
         const s = studentMap.get(studentId)
+
         return {
           studentId,
           name: s ? `${s.firstName} ${s.lastName || ""}`.trim() : "?",
@@ -329,7 +439,10 @@ router.get("/:examId/results", async (req, res, next) => {
         }
       })
       .sort((a, b) => b.pct - a.pct)
-      .map((r, i) => ({ ...r, rank: i + 1 }))
+      .map((r, i) => ({
+        ...r,
+        rank: i + 1,
+      }))
 
     return res.json({
       ranked,

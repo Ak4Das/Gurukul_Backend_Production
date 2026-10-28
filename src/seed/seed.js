@@ -47,7 +47,6 @@ async function seed() {
       "inventoryItems",
       "stockMovements",
       "timetables",
-      "substitutes",
       "ptms",
       "settings",
       "counters",
@@ -1490,26 +1489,6 @@ async function seed() {
   await mkSlip(teachers[2], prevMonth(), 40000, "paid")
   await mkSlip(teachers[0], thisMonth, 45000, "generated")
   await mkSlip(teachers[1], thisMonth, 42000, "generated")
-
-  // ---------- Substitutes ----------
-  await col("substitutes").insertMany([
-    {
-      date: iso(today),
-      absentTeacherId: teachers[3]._id,
-      absentTeacherName: "Teacher 4",
-      substituteTeacherId: teachers[0]._id,
-      substituteTeacherName: "Teacher 1",
-      periods: [
-        {
-          day: "Monday",
-          period: 2,
-          className: "Class 2 A",
-          subjectName: "Computer",
-        },
-      ],
-      status: "allocated",
-    },
-  ])
 
   console.log("Seed complete.")
   console.log(
