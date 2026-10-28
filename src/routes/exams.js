@@ -402,7 +402,6 @@ router.get("/:examId/results", async (req, res, next) => {
     const studentMap = new Map(students.map((s) => [s._id.toString(), s]))
 
     const perStudent = {}
-    const gradeDist = {}
 
     for (const sheet of sheets) {
       const subj = subjectMap.get(sheet.subjectId?.toString())
@@ -429,8 +428,6 @@ router.get("/:examId/results", async (req, res, next) => {
           grade: e.grade,
           maxMarks: subj?.maxMarks,
         })
-
-        gradeDist[e.grade] = (gradeDist[e.grade] || 0) + 1
       }
     }
 
@@ -457,7 +454,6 @@ router.get("/:examId/results", async (req, res, next) => {
 
     return res.json({
       ranked,
-      gradeDist,
       sheets: sheets.map(({ entries, ...s }) => ({
         ...s,
         entriesCount: entries?.length || 0,
