@@ -82,6 +82,15 @@ dailyAccountSchema.index({ date: 1 })
 dailyAccountSchema.index({ type: 1 })
 dailyAccountSchema.index({ date: -1 })
 
+// sparse: true is because not every DailyAccount is a salary transaction. You have other categories such as Fees, Donation, Utilities, Assets, etc.
+dailyAccountSchema.index(
+  { slipId: 1 },
+  {
+    unique: true,
+    sparse: true,
+  },
+)
+
 export const DailyAccount = mongoose.model(
   "DailyAccount",
   dailyAccountSchema,

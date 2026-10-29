@@ -16,7 +16,7 @@ const salarySlipSchema = new mongoose.Schema(
     role: { type: String },
     designation: { type: String },
     month: { type: String, required: true }, // Format: 'YYYY-MM'
-    basicSalary: { type: Number, default: 0 },
+    salary: { type: Number, default: 0 },
     gross: { type: Number, default: 0 },
     netPay: { type: Number, default: 0 },
     workingDays: { type: Number, default: 26 },
@@ -28,7 +28,11 @@ const salarySlipSchema = new mongoose.Schema(
     },
     generatedBy: { type: String, required: true },
     paidOn: { type: String }, // Format: 'YYYY-MM-DD'
-    mode: { type: String },
+    mode: {
+      type: String,
+      enum: ["cash", "online", "check", "upi", "card"],
+      default: "cash",
+    },
     paidBy: { type: String },
   },
   {

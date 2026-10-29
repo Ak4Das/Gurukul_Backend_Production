@@ -18,10 +18,10 @@ function isValidObjectId(id) {
 
 // Helper to calculate total allowances, deductions, gross and net pay
 function compute(b) {
-  const basic = Number(b.basicSalary) || 0
+  const basic = Number(b.salary) || 0
 
   return {
-    basicSalary: basic,
+    salary: basic,
     gross: basic,
     totalAllowances: 0,
     totalDeductions: 0,
@@ -99,6 +99,7 @@ router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
       ...computedValues,
       workingDays: Number(b.workingDays) || 26,
       presentDays: Number(b.presentDays) ?? (Number(b.workingDays) || 26),
+      mode: b.mode || "cash",
       status: "generated",
       generatedBy:
         req.user.fullName || req.user.name || req.user.username || "Admin",
@@ -176,16 +177,17 @@ router.post(
       slip.paidOn = today
       slip.mode = paymentMode
       slip.paidBy = paidBy
+
       await slip.save()
 
       await DailyAccount.create({
-        date: today,
+        date: slip.paidOn || today,
         type: "expense",
         category: "Salary",
         description: `Salary ${slip.month} — ${slip.staffName} (${slip.slipNo})`,
         amount: slip.netPay,
-        mode: paymentMode,
-        recordedBy: paidBy,
+        mode: slip.mode || "cash",
+        recordedBy: paidBy || slip.paidBy || slip.generatedBy || "Admin",
         slipNumber: slip.slipNo,
         slipId: slip._id,
       })
@@ -205,9 +207,14 @@ router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
     }
 
     const deleted = await SalarySlip.findByIdAndDelete(req.params.id)
+
     if (!deleted) {
       return res.status(404).json({ error: "Slip not found" })
     }
+
+    await DailyAccount.deleteMany({
+      slipId: deleted._id,
+    })
 
     return res.json({ ok: true })
   } catch (err) {
