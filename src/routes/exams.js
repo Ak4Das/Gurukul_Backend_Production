@@ -356,7 +356,6 @@ router.get("/:examId/results", async (req, res, next) => {
       })
     }
 
-    // Get exam first so we can check its status
     const exam = await Exam.findById(req.params.examId).lean()
 
     if (!exam) {

@@ -18,25 +18,14 @@ function isValidObjectId(id) {
 
 // Helper to calculate total allowances, deductions, gross and net pay
 function compute(b) {
-  const allowances = (b.allowances || []).map((a) => ({
-    name: a.name,
-    amount: Number(a.amount) || 0,
-  }))
-  const deductions = (b.deductions || []).map((d) => ({
-    name: d.name,
-    amount: Number(d.amount) || 0,
-  }))
   const basic = Number(b.basicSalary) || 0
-  const totalAllowances = allowances.reduce((s, a) => s + a.amount, 0)
-  const totalDeductions = deductions.reduce((s, d) => s + d.amount, 0)
+
   return {
     basicSalary: basic,
-    allowances,
-    deductions,
-    gross: basic + totalAllowances,
-    totalAllowances,
-    totalDeductions,
-    netPay: basic + totalAllowances - totalDeductions,
+    gross: basic,
+    totalAllowances: 0,
+    totalDeductions: 0,
+    netPay: basic,
   }
 }
 
@@ -198,7 +187,7 @@ router.post(
         mode: paymentMode,
         recordedBy: paidBy,
         slipNumber: slip.slipNo,
-        slipId:slip._id
+        slipId: slip._id,
       })
 
       return res.json(slip)

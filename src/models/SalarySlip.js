@@ -1,21 +1,5 @@
 import mongoose from "mongoose"
 
-const allowanceSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    amount: { type: Number, default: 0 },
-  },
-  { _id: false },
-)
-
-const deductionSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    amount: { type: Number, default: 0 },
-  },
-  { _id: false },
-)
-
 const salarySlipSchema = new mongoose.Schema(
   {
     slipNo: {
@@ -33,11 +17,7 @@ const salarySlipSchema = new mongoose.Schema(
     designation: { type: String },
     month: { type: String, required: true }, // Format: 'YYYY-MM'
     basicSalary: { type: Number, default: 0 },
-    allowances: [allowanceSchema],
-    deductions: [deductionSchema],
     gross: { type: Number, default: 0 },
-    totalAllowances: { type: Number, default: 0 },
-    totalDeductions: { type: Number, default: 0 },
     netPay: { type: Number, default: 0 },
     workingDays: { type: Number, default: 26 },
     presentDays: { type: Number, default: 26 },
