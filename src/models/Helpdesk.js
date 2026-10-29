@@ -39,17 +39,19 @@ const helpdeskTicketSchema = new mongoose.Schema(
     },
     raisedBy: {
       type: String,
-      required: true,
+      required: [true, "Raised by is required"],
+      trim: true,
       index: true,
     },
     role: {
       type: String,
-      enum: ["student", "parent", "teacher", "staff", "admin"],
+      enum: ["student", "parent", "teacher", "clerk", "supervisor", "admin"],
+      required: [true, "Role is required"],
     },
     assignedTo: {
       type: String,
       trim: true,
-      required: true,
+      default: "",
     },
   },
   {

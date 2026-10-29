@@ -4,7 +4,12 @@ import mongoose from "mongoose"
 // model imports
 import { Helpdesk } from "../models/Helpdesk.js"
 // middleware imports
-import { authRequired, allowRoles, ALL_ROLES } from "../middleware/auth.js"
+import {
+  authRequired,
+  allowRoles,
+  ALL_ROLES,
+  STAFF,
+} from "../middleware/auth.js"
 
 const router = Router()
 
@@ -86,56 +91,96 @@ router.get("/:id", async (req, res, next) => {
 })
 
 //! POST /api/helpdesk - Create a new helpdesk ticket
-router.post("/", allowRoles(...ALL_ROLES), async (req, res, next) => {
-  try {
-    const ticket = await Helpdesk.create(req.body)
-    return res.status(201).json(ticket)
-  } catch (err) {
-    return next(err)
-  }
-})
+router.post(
+  "/",
+  allowRoles("student", "parent", "teacher"),
+  async (req, res, next) => {
+    try {
+      const body = {
+        subject: req.body.subject,
+        description: req.body.description,
+        category: req.body.category,
+        priority: req.body.priority,
 
+        // Always derived from authenticated user.
+        raisedBy: req.user.username,
+        role: req.user.role,
+
+        // Always open when created.
+        status: "open",
+
+        // No staff member has handled it yet.
+        assignedTo: "",
+      }
+
+      const ticket = await Helpdesk.create(body)
+
+      return res.status(201).json(ticket)
+    } catch (err) {
+      return next(err)
+    }
+  },
+)
 //! PUT /api/helpdesk/:id - Replace helpdesk ticket details
-router.put("/:id", allowRoles(...ALL_ROLES), async (req, res, next) => {
-  try {
-    if (!isValidObjectId(req.params.id)) {
-      return res
-        .status(400)
-        .json({ error: "Invalid helpdesk ticket ID format" })
-    }
-    let body = { ...req.body }
-    delete body._id
-    const updated = await Helpdesk.findByIdAndUpdate(
-      req.params.id,
-      { $set: body },
-      { new: true, runValidators: true },
-    ).lean()
+router.put(
+  "/:id",
+  allowRoles("admin", "clerk", "supervisor"),
+  async (req, res, next) => {
+    try {
+      if (!isValidObjectId(req.params.id)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid helpdesk ticket ID format" })
+      }
 
-    if (!updated) {
-      return res.status(404).json({ error: "Helpdesk ticket not found" })
+      // Only status is accepted from the frontend.
+      const update = {
+        status: req.body.status,
+
+        // Automatically record which staff member handled it.
+        assignedTo: req.user.username,
+      }
+
+      const updated = await Helpdesk.findByIdAndUpdate(
+        req.params.id,
+        { $set: update },
+        {
+          new: true,
+          runValidators: true,
+        },
+      ).lean()
+
+      if (!updated) {
+        return res.status(404).json({ error: "Helpdesk ticket not found" })
+      }
+
+      return res.json(updated)
+    } catch (err) {
+      return next(err)
     }
-    return res.json(updated)
-  } catch (err) {
-    return next(err)
-  }
-})
+  },
+)
 
 //! DELETE /api/helpdesk/:id - Delete helpdesk ticket
-router.delete("/:id", allowRoles(...ALL_ROLES), async (req, res, next) => {
-  try {
-    if (!isValidObjectId(req.params.id)) {
-      return res
-        .status(400)
-        .json({ error: "Invalid helpdesk ticket ID format" })
+router.delete(
+  "/:id",
+  allowRoles("admin", "clerk", "supervisor"),
+  async (req, res, next) => {
+    try {
+      if (!isValidObjectId(req.params.id)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid helpdesk ticket ID format" })
+      }
+      const deleted = await Helpdesk.findByIdAndDelete(req.params.id).lean()
+      if (!deleted) {
+        return res.status(404).json({ error: "Helpdesk ticket not found" })
+      }
+      return res.json({ ok: true })
+    } catch (err) {
+      return next(err)
     }
-    const deleted = await Helpdesk.findByIdAndDelete(req.params.id).lean()
-    if (!deleted) {
-      return res.status(404).json({ error: "Helpdesk ticket not found" })
-    }
-    return res.json({ ok: true })
-  } catch (err) {
-    return next(err)
-  }
-})
+  },
+)
 
 export default router
