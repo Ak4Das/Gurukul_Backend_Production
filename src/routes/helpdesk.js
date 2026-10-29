@@ -172,10 +172,21 @@ router.delete(
           .status(400)
           .json({ error: "Invalid helpdesk ticket ID format" })
       }
-      const deleted = await Helpdesk.findByIdAndDelete(req.params.id).lean()
-      if (!deleted) {
+
+      const ticket = await Helpdesk.findById(req.params.id)
+
+      if (!ticket) {
         return res.status(404).json({ error: "Helpdesk ticket not found" })
       }
+
+      if (ticket.status !== "closed") {
+        return res.status(400).json({
+          error: "Only closed complaints can be deleted",
+        })
+      }
+
+      await Helpdesk.findByIdAndDelete(req.params.id)
+
       return res.json({ ok: true })
     } catch (err) {
       return next(err)
