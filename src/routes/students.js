@@ -28,14 +28,355 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id)
 }
 
-//! GET /students - List and filter students
+//! GET /students - List, search, filter, sort and paginate students
 router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
   try {
-    const query = req.query
+    /*
+     * Keep the old response format for existing callers such as
+     * useLookups(["students"]).
+     *
+     * Students.jsx explicitly sends paginated=true, so only the
+     * Students page uses the new server-side implementation.
+     */
+    if (req.query.paginated !== "true") {
+      const query = { ...req.query }
+      delete query.paginated
 
-    let docs = await Student.find(query).sort({ admissionNo: 1 })
+      const docs = await Student.find(query).sort({ admissionNo: 1 })
 
-    return res.json(docs)
+      return res.json(docs)
+    }
+
+    const {
+      page: pageParam = "1",
+      limit: limitParam = "10",
+      search = "",
+      status = "",
+      classId = "",
+      gender = "",
+      hasAllergies = "false",
+      sortBy = "admissionNo",
+      sortOrder = "asc",
+    } = req.query
+
+    // ==========================================
+    // Pagination
+    // ==========================================
+
+    const requestedPage = Math.max(1, Number.parseInt(pageParam, 10) || 1)
+
+    const allowedPageSizes = [10, 25, 50, 100]
+
+    let limit = Number.parseInt(limitParam, 10) || 10
+
+    if (!allowedPageSizes.includes(limit)) {
+      limit = 10
+    }
+
+    // ==========================================
+    // Validate filters
+    // ==========================================
+
+    const allowedStatuses = [
+      "active",
+      "inactive",
+      "transferred",
+      "passed-out",
+      "suspended",
+    ]
+
+    const allowedGenders = ["Male", "Female", "Other"]
+
+    if (status && !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        error: "Invalid student status",
+      })
+    }
+
+    if (gender && !allowedGenders.includes(gender)) {
+      return res.status(400).json({
+        error: "Invalid student gender",
+      })
+    }
+
+    if (classId && !isValidObjectId(classId)) {
+      return res.status(400).json({
+        error: "Invalid class ID format",
+      })
+    }
+
+    // ==========================================
+    // Base filters
+    // ==========================================
+
+    const match = {}
+
+    if (classId) {
+      match.classId = new mongoose.Types.ObjectId(classId)
+    }
+
+    if (gender) {
+      match.gender = gender
+    }
+
+    /*
+     * Has allergies means the allergies field contains at least
+     * one non-whitespace character.
+     */
+    if (hasAllergies === "true") {
+      match.allergies = {
+        $regex: "\\S",
+      }
+    }
+
+    /*
+     * Do NOT put status into this base match.
+     *
+     * We need status counts for all statuses even when the
+     * currently selected StatusTab is only "active", for example.
+     */
+    const baseMatch = { ...match }
+
+    // ==========================================
+    // Escape user search text before creating regex
+    // ==========================================
+
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+    const searchText = String(search).trim()
+
+    const searchRegex = searchText
+      ? new RegExp(escapeRegex(searchText), "i")
+      : null
+
+    // ==========================================
+    // Allowed sorting fields
+    // ==========================================
+
+    /*
+     * classId is mapped to className because the UI displays
+     * the human-readable class name rather than the ObjectId.
+     */
+    const sortFields = {
+      admissionNo: "admissionNo",
+      firstName: "firstName",
+      lastName: "lastName",
+      gender: "gender",
+      nationality: "nationality",
+      curriculum: "curriculum",
+      classId: "className",
+      status: "status",
+      allergies: "allergies",
+      rollNo: "rollNo",
+      academicYear: "academicYear",
+      admissionDate: "admissionDate",
+      dob: "dob",
+      transportRequired: "transportRequired",
+    }
+
+    const sortField = sortFields[sortBy] || "admissionNo"
+
+    const sortDirection = sortOrder === "desc" ? -1 : 1
+
+    // ==========================================
+    // Aggregation pipeline
+    // ==========================================
+
+    const pipeline = [
+      {
+        $match: baseMatch,
+      },
+
+      /*
+       * Lookup class information so that:
+       *
+       * 1. class name can be searched
+       * 2. class can be sorted by its visible name
+       */
+      {
+        $lookup: {
+          from: "classes",
+          localField: "classId",
+          foreignField: "_id",
+          as: "classInfo",
+        },
+      },
+
+      {
+        $unwind: {
+          path: "$classInfo",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+
+      {
+        $set: {
+          className: {
+            $trim: {
+              input: {
+                $concat: [
+                  { $ifNull: ["$classInfo.name", ""] },
+                  " ",
+                  { $ifNull: ["$classInfo.section", ""] },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ]
+
+    // ==========================================
+    // Search
+    // ==========================================
+
+    if (searchRegex) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { admissionNo: searchRegex },
+            { firstName: searchRegex },
+            { lastName: searchRegex },
+            { rollNo: searchRegex },
+            { nationality: searchRegex },
+            { curriculum: searchRegex },
+            { academicYear: searchRegex },
+            { languages: searchRegex },
+            { address: searchRegex },
+            { allergies: searchRegex },
+            { className: searchRegex },
+          ],
+        },
+      })
+    }
+
+    // ==========================================
+    // Status-specific stages
+    // ==========================================
+
+    const statusStages = status ? [{ $match: { status } }] : []
+
+    // ==========================================
+    // Pagination
+    // ==========================================
+
+    const skip = (requestedPage - 1) * limit
+
+    pipeline.push({
+      $facet: {
+        // --------------------------------------
+        // Actual student page
+        // --------------------------------------
+        data: [
+          ...statusStages,
+
+          {
+            $sort: {
+              [sortField]: sortDirection,
+
+              /*
+               * Stable secondary sort.
+               *
+               * This prevents records with the same primary
+               * sort value from jumping between pages.
+               */
+              _id: 1,
+            },
+          },
+
+          {
+            $skip: skip,
+          },
+
+          {
+            $limit: limit,
+          },
+
+          {
+            $project: {
+              classInfo: 0,
+            },
+          },
+        ],
+
+        // --------------------------------------
+        // Total records for current tab/filter
+        // --------------------------------------
+        total: [
+          ...statusStages,
+
+          {
+            $count: "count",
+          },
+        ],
+
+        // --------------------------------------
+        // Counts for all status tabs
+        //
+        // Notice that statusStages is NOT used here.
+        // --------------------------------------
+        statusCounts: [
+          {
+            $group: {
+              _id: "$status",
+              count: {
+                $sum: 1,
+              },
+            },
+          },
+        ],
+      },
+    })
+
+    const [result] = await Student.aggregate(pipeline)
+
+    const total = result?.total?.[0]?.count || 0
+
+    const totalPages = Math.max(1, Math.ceil(total / limit))
+
+    const counts = {
+      all: 0,
+      active: 0,
+      inactive: 0,
+      transferred: 0,
+      "passed-out": 0,
+      suspended: 0,
+    }
+
+    for (const item of result?.statusCounts || []) {
+      if (Object.prototype.hasOwnProperty.call(counts, item._id)) {
+        counts[item._id] = item.count
+      }
+    }
+
+    counts.all =
+      counts.active +
+      counts.inactive +
+      counts.transferred +
+      counts["passed-out"] +
+      counts.suspended
+
+    /*
+     * If the requested page is now outside the valid range,
+     * for example after deleting the last student on the last
+     * page, tell the frontend the valid page range.
+     *
+     * Students.jsx will automatically request the corrected page.
+     */
+    const currentPage = total === 0 ? 1 : Math.min(requestedPage, totalPages)
+
+    return res.json({
+      data: result?.data || [],
+
+      pagination: {
+        page: currentPage,
+        limit,
+        total,
+        totalPages,
+      },
+
+      counts,
+    })
   } catch (err) {
     return next(err)
   }
