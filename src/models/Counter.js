@@ -8,14 +8,16 @@ const counterSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
+counterSchema.index({ key: 1 }, { unique: true })
+
 export const Counter = mongoose.model("Counter", counterSchema, "counters")
 
 // Atomically increments and fetches the next sequence value.
-export async function nextSeq(sequenceName, session) {
+export async function nextSeq(sequenceName, session = null) {
   const counter = await Counter.findOneAndUpdate(
     { key: sequenceName },
     { $inc: { value: 1 } }, // increment seq by 1
-    { new: true, upsert: true, session }, // upsert: true means update if the document exists; otherwise create it.
+    { returnDocument: "after", upsert: true, ...(session ? { session } : {}) }, // upsert: true means update if the document exists; otherwise create it.
   )
   return counter.value
 }

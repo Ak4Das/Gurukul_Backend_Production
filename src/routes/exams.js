@@ -108,17 +108,24 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
 //! DELETE /exams/:id - Remove exam and associated marks
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid exam ID" })
     }
 
-    await Exam.findByIdAndDelete(req.params.id)
-    await Mark.deleteMany({ examId: req.params.id })
+    session.startTransaction()
+    await Exam.findByIdAndDelete(req.params.id, { session })
+    await Mark.deleteMany({ examId: req.params.id }, { session })
+    await session.commitTransaction()
 
     return res.json({ ok: true })
   } catch (err) {
+    await session.abortTransaction()
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
@@ -243,21 +250,33 @@ router.post(
 
 //! POST /exams/:examId/publish - Publish results (Admin only)
 router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
     if (!isValidObjectId(req.params.examId)) {
       return res.status(400).json({ error: "Invalid exam ID" })
     }
 
-    const exam = await Exam.findById(req.params.examId).lean()
+    session.startTransaction()
+
+    const exam = await Exam.findById(req.params.examId)
+      .session(session)
+      .lean()
 
     if (!exam) {
-      return res.status(404).json({ error: "Exam not found" })
+      await session.abortTransaction()
+
+      return res.status(404).json({
+        error: "Exam not found",
+      })
     }
 
     // Get all subjects assigned to any class of this exam
     const subjects = await Subject.find({
       classIds: { $in: exam.classIds },
-    }).lean()
+    })
+      .session(session)
+      .lean()
 
     // Build all expected class + subject combinations
     const expectedSheets = []
@@ -281,24 +300,30 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
     // Get all mark sheets created for this exam
     const marks = await Mark.find({
       examId: req.params.examId,
-    }).lean()
+    })
+      .session(session)
+      .lean()
 
     // Create a quick lookup of submitted mark sheets
     const submittedSheets = new Set(
       marks
         .filter((mark) => mark.status === "submitted")
         .map(
-          (mark) => `${mark.classId.toString()}_${mark.subjectId.toString()}`,
+          (mark) =>
+            `${mark.classId.toString()}_${mark.subjectId.toString()}`,
         ),
     )
 
     // Find expected papers that are not submitted
     const pendingSheets = expectedSheets.filter(
-      (sheet) => !submittedSheets.has(`${sheet.classId}_${sheet.subjectId}`),
+      (sheet) =>
+        !submittedSheets.has(`${sheet.classId}_${sheet.subjectId}`),
     )
 
     // Do not publish until every expected paper is submitted
     if (pendingSheets.length > 0) {
+      await session.abortTransaction()
+
       return res.status(400).json({
         error:
           "All subject papers must be submitted by teachers before publishing.",
@@ -323,19 +348,32 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
         publishedBy: publishedName,
         publishedAt: new Date().toISOString().slice(0, 10),
       },
+      { session },
     )
 
     // Update exam status
-    await Exam.findByIdAndUpdate(req.params.examId, {
-      status: "published",
-    })
+    await Exam.findByIdAndUpdate(
+      req.params.examId,
+      {
+        status: "published",
+      },
+      {
+        session,
+        runValidators: true,
+      },
+    )
+
+    await session.commitTransaction()
 
     return res.json({
       ok: true,
       publishedSheets: updateResult.modifiedCount,
     })
   } catch (err) {
+    await session.abortTransaction()
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 

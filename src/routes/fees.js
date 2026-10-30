@@ -185,7 +185,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     const {
       student,
       klass,
-      items:ITEMS,
+      items: ITEMS,
       subTotal,
     } = await calculateStudentFee(b.studentId, res)
 
@@ -317,7 +317,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
     return res.status(201).json(doc)
   } catch (err) {
-    await session.abortTransaction()
+    if (session.inTransaction()) {
+      await session.abortTransaction()
+    }
     return next(err)
   } finally {
     await session.endSession()
@@ -354,12 +356,18 @@ router.post(
   "/:id/refund",
   allowRoles("admin", "clerk"),
   async (req, res, next) => {
+    const session = await mongoose.startSession()
+
     try {
       if (!isValidObjectId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid receipt ID format" })
+        return res.status(400).json({
+          error: "Invalid receipt ID format",
+        })
       }
 
       const userName = req.user?.username
+
+      session.startTransaction()
 
       const updated = await FeeReceipt.findByIdAndUpdate(
         req.params.id,
@@ -367,18 +375,41 @@ router.post(
           status: "refunded",
           refundedBy: userName,
         },
-        { new: true, runValidators: true },
+        {
+          new: true,
+          runValidators: true,
+          session,
+        },
       ).lean()
 
       if (!updated) {
-        return res.status(404).json({ error: "Receipt not found" })
+        await session.abortTransaction()
+
+        return res.status(404).json({
+          error: "Receipt not found",
+        })
       }
 
-      await DailyAccount.findOneAndDelete({ receiptId: updated._id })
+      await DailyAccount.findOneAndDelete(
+        {
+          receiptId: updated._id,
+        },
+        {
+          session,
+        },
+      )
+
+      await session.commitTransaction()
 
       return res.json(updated)
     } catch (err) {
+      if (session.inTransaction()) {
+        await session.abortTransaction()
+      }
+
       return next(err)
+    } finally {
+      await session.endSession()
     }
   },
 )

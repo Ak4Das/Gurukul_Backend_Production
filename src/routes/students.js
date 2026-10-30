@@ -77,16 +77,22 @@ router.get("/:id", async (req, res, next) => {
 
 //! POST /students - Create student & credentials
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
+    session.startTransaction()
+
     const { loginPassword, parentPassword, ...others } = req.body
 
     if (!others.firstName || !others.classId) {
+      await session.abortTransaction()
       return res
         .status(400)
         .json({ error: "Student name and class are required" })
     }
 
     if (!isValidObjectId(others.classId)) {
+      await session.abortTransaction()
       return res.status(400).json({ error: "Invalid class ID format" })
     }
 
@@ -94,8 +100,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     const seq = await nextSeq("admissionNo")
     const admissionNo = `${year}-${String(seq).padStart(8, "0")}`
 
-    const klass = await Class.findById(others.classId)
+    const klass = await Class.findById(others.classId).session(session)
     if (!klass) {
+      await session.abortTransaction()
       return res.status(400).json({ error: "Please select a valid class" })
     }
     const rollNo = await nextSeq(`${klass.name}${klass.section} - roll`)
@@ -107,17 +114,19 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       parentIds: others.parentIds || [],
     }
 
-    const student = await Student.create(studentData)
+    const student = new Student(studentData)
+    await student.save({ session })
+
     const credentials = {}
 
     // Auto-create parent from inline parent details
     if (others.parentName && !student.parentIds.length) {
       let parent = others.parentMobile
-        ? await Parent.findOne({ mobile: others.parentMobile })
+        ? await Parent.findOne({ mobile: others.parentMobile }).session(session)
         : null
 
       if (!parent) {
-        parent = await Parent.create({
+        parent = new Parent({
           name: others.parentName,
           relation: others.parentRelation || "Guardian",
           mobile: others.parentMobile || "",
@@ -127,11 +136,13 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
           status: "active",
         })
 
+        await parent.save({ session })
+
         const pSeq = await nextSeq("parentUser")
         const pUsername = `parent${pSeq}`
         const pPassword = parentPassword || "parent123"
 
-        await User.create({
+        const parentUser = new User({
           username: pUsername,
           fullName: parent.name,
           role: "parent",
@@ -149,12 +160,14 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
                 : "",
         })
 
+        await parentUser.save({ session })
+
         credentials.parentUsername = pUsername
         credentials.parentPassword = pPassword
       }
 
       student.parentIds = [parent._id]
-      await student.save()
+      await student.save({ session })
     }
 
     // Student login account
@@ -162,7 +175,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     const sUsername = `student${sSeq}`
     const sPassword = loginPassword || "student123"
 
-    await User.create({
+    const studentUser = new User({
       username: sUsername,
       fullName: `${others.firstName} ${others.lastName || ""}`.trim(),
       role: "student",
@@ -175,25 +188,41 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       joined: others.admissionDate,
     })
 
+    await studentUser.save({ session })
+
     credentials.studentUsername = sUsername
     credentials.studentPassword = sPassword
 
+    await session.commitTransaction()
+
     return res.status(201).json({ ...student.toObject(), credentials })
   } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction()
+    }
+
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
 //! PUT /students/:id - Update student
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
+    session.startTransaction()
+
     if (!isValidObjectId(req.params.id)) {
+      await session.abortTransaction()
       return res.status(400).json({ error: "Invalid student ID format" })
     }
 
-    const studentObj = await Student.findById(req.params.id)
+    const studentObj = await Student.findById(req.params.id).session(session)
 
     if (!studentObj) {
+      await session.abortTransaction()
       return res.status(400).json({ error: "Student not found" })
     }
 
@@ -208,10 +237,13 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     }
 
     if (b.classId && studentObj.classId.toString() !== b.classId) {
-      const klass = await Class.findById(b.classId)
+      const klass = await Class.findById(b.classId).session(session)
+
       if (!klass) {
+        await session.abortTransaction()
         return res.status(400).json({ error: "Please select a valid class" })
       }
+
       const rollNo = await nextSeq(`${klass.name}${klass.section} - roll`)
 
       studentData.rollNo = rollNo
@@ -223,10 +255,12 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       {
         new: true,
         runValidators: true,
+        session,
       },
     )
 
     if (!updatedStudent) {
+      await session.abortTransaction()
       return res.status(404).json({ error: "Student not found" })
     }
 
@@ -243,12 +277,21 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       {
         new: true,
         runValidators: true,
+        session,
       },
     )
 
+    await session.commitTransaction()
+
     return res.json(updatedStudent)
   } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction()
+    }
+
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
@@ -259,13 +302,20 @@ router.get("/:id/fees", async (req, res, next) => {
       return res.status(400).json({ error: "Invalid student ID format" })
     }
 
-    const receipts = await FeeReceipt.find({ studentId: req.params.id }).sort({
+    const receipts = await FeeReceipt.find({
+      studentId: req.params.id,
+    }).sort({
       date: -1,
     })
+
     const structures = await FeeStructure.find()
     const student = await Student.findById(req.params.id)
 
-    return res.json({ receipts, structures, student })
+    return res.json({
+      receipts,
+      structures,
+      student,
+    })
   } catch (err) {
     return next(err)
   }
@@ -306,7 +356,10 @@ router.get("/:id/attendance", async (req, res, next) => {
       summary[r.status] = (summary[r.status] || 0) + 1
     }
 
-    return res.json({ records, summary })
+    return res.json({
+      records,
+      summary,
+    })
   } catch (err) {
     return next(err)
   }
@@ -324,7 +377,10 @@ router.get("/:id/results", async (req, res, next) => {
       return res.status(404).json({ error: "Student not found" })
     }
 
-    const allMarks = await Mark.find({ classId: student.classId })
+    const allMarks = await Mark.find({
+      classId: student.classId,
+    })
+
     const exams = await Exam.find()
     const subjects = await Subject.find()
 
@@ -355,7 +411,10 @@ router.get("/:id/results", async (req, res, next) => {
       })
     }
 
-    return res.json({ student, results })
+    return res.json({
+      student,
+      results,
+    })
   } catch (err) {
     return next(err)
   }
@@ -373,7 +432,10 @@ router.get("/:id/parents", async (req, res, next) => {
       return res.status(404).json({ error: "Student not found" })
     }
 
-    const parents = await Parent.find({ _id: { $in: student.parentIds || [] } })
+    const parents = await Parent.find({
+      _id: { $in: student.parentIds || [] },
+    })
+
     return res.json(parents)
   } catch (err) {
     return next(err)
@@ -382,17 +444,37 @@ router.get("/:id/parents", async (req, res, next) => {
 
 //! DELETE /students/:id - Delete student
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
+    session.startTransaction()
+
     if (!isValidObjectId(req.params.id)) {
+      await session.abortTransaction()
       return res.status(400).json({ error: "Invalid student ID format" })
     }
 
-    await Student.findByIdAndDelete(req.params.id)
-    await User.findOneAndDelete({ role: "student", refId: req.params.id })
+    await Student.findByIdAndDelete(req.params.id, { session })
+
+    await User.findOneAndDelete(
+      {
+        role: "student",
+        refId: req.params.id,
+      },
+      { session },
+    )
+
+    await session.commitTransaction()
 
     return res.json({ ok: true })
   } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction()
+    }
+
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 

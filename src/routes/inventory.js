@@ -42,8 +42,11 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
     const b = req.body
+
     if (!b.name) {
-      return res.status(400).json({ error: "Item name is required" })
+      return res.status(400).json({
+        error: "Item name is required",
+      })
     }
 
     const doc = await InventoryItem.create({
@@ -66,7 +69,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid item ID" })
+      return res.status(400).json({
+        error: "Invalid item ID",
+      })
     }
 
     const b = { ...req.body }
@@ -78,7 +83,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     }).lean()
 
     if (!updated) {
-      return res.status(404).json({ error: "Item not found" })
+      return res.status(404).json({
+        error: "Item not found",
+      })
     }
 
     return res.json(updated)
@@ -91,61 +98,89 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 // POST /inventory/:id/move - Stock movement (in | issue)
 // ==========================================
 router.post("/:id/move", allowRoles(...STAFF), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid item ID" })
-    }
-
-    const item = await InventoryItem.findById(req.params.id)
-    if (!item) {
-      return res.status(404).json({ error: "Item not found" })
-    }
-
-    const { type, quantity, note, issuedTo } = req.body
-    const qty = Number(quantity)
-
-    if (!["in", "issue"].includes(type) || !Number.isInteger(qty) || qty <= 0) {
       return res.status(400).json({
-        error:
-          "Valid movement type and positive whole-number quantity are required",
+        error: "Invalid item ID",
       })
     }
 
-    let newQty = item.quantity || 0
+    let updatedItem
 
-    if (type === "in") {
-      newQty += qty
-    } else {
-      if (qty > newQty) {
-        return res.status(400).json({
-          error: `Only ${newQty} ${item.unit} in stock`,
-        })
+    await session.withTransaction(async () => {
+      const item = await InventoryItem.findById(req.params.id).session(session)
+
+      if (!item) {
+        const error = new Error("Item not found")
+        error.status = 404
+        throw error
       }
 
-      newQty -= qty
-    }
+      const { type, quantity, note, issuedTo } = req.body
 
-    const today = new Date().toISOString().slice(0, 10)
-    const performedBy =
-      req.user.fullName || req.user.name || req.user.username || "Staff"
+      const qty = Number(quantity)
 
-    await StockMovement.create({
-      itemId: item._id,
-      type,
-      quantity: qty,
-      balanceAfter: newQty,
-      note: note || "",
-      issuedTo: issuedTo || "",
-      date: today,
-      by: performedBy,
+      if (
+        !["in", "issue"].includes(type) ||
+        !Number.isInteger(qty) ||
+        qty <= 0
+      ) {
+        const error = new Error(
+          "Valid movement type and positive whole-number quantity are required",
+        )
+        error.status = 400
+        throw error
+      }
+
+      let newQty = item.quantity || 0
+
+      if (type === "in") {
+        newQty += qty
+      } else {
+        if (qty > newQty) {
+          const error = new Error(`Only ${newQty} ${item.unit} in stock`)
+          error.status = 400
+          throw error
+        }
+
+        newQty -= qty
+      }
+
+      const today = new Date().toISOString().slice(0, 10)
+
+      const performedBy =
+        req.user.fullName || req.user.name || req.user.username || "Staff"
+
+      await StockMovement.create(
+        [
+          {
+            itemId: item._id,
+            type,
+            quantity: qty,
+            balanceAfter: newQty,
+            note: note || "",
+            issuedTo: issuedTo || "",
+            date: today,
+            by: performedBy,
+          },
+        ],
+        { session },
+      )
+
+      item.quantity = newQty
+
+      await item.save({ session })
+
+      updatedItem = item
     })
 
-    item.quantity = newQty
-    await item.save()
-
-    return res.json(item)
+    return res.json(updatedItem)
   } catch (err) {
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
@@ -155,10 +190,14 @@ router.post("/:id/move", allowRoles(...STAFF), async (req, res, next) => {
 router.get("/:id/movements", allowRoles(...STAFF), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid item ID" })
+      return res.status(400).json({
+        error: "Invalid item ID",
+      })
     }
 
-    const movements = await StockMovement.find({ itemId: req.params.id })
+    const movements = await StockMovement.find({
+      itemId: req.params.id,
+    })
       .sort({ createdAt: -1 })
       .lean()
 
@@ -172,22 +211,40 @@ router.get("/:id/movements", allowRoles(...STAFF), async (req, res, next) => {
 // DELETE /inventory/:id - Delete item (Admin only)
 // ==========================================
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid item ID" })
+      return res.status(400).json({
+        error: "Invalid item ID",
+      })
     }
 
-    const deleted = await InventoryItem.findByIdAndDelete(req.params.id)
-    if (!deleted) {
-      return res.status(404).json({ error: "Item not found" })
-    }
+    await session.withTransaction(async () => {
+      const deleted = await InventoryItem.findByIdAndDelete(req.params.id, {
+        session,
+      })
 
-    // Optionally cleanup associated stock movements
-    await StockMovement.deleteMany({ itemId: req.params.id })
+      if (!deleted) {
+        const error = new Error("Item not found")
+        error.status = 404
+        throw error
+      }
+
+      // Cleanup associated stock movements
+      await StockMovement.deleteMany(
+        {
+          itemId: req.params.id,
+        },
+        { session },
+      )
+    })
 
     return res.json({ ok: true })
   } catch (err) {
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 

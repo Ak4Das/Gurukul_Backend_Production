@@ -59,55 +59,85 @@ router.get("/", async (req, res, next) => {
 
 //! POST /payroll - Generate new salary slip
 router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
+    session.startTransaction()
+
     const b = req.body
+
     if (!b.staffId || !b.month) {
+      await session.abortTransaction()
+
       return res
         .status(400)
         .json({ error: "Staff member and month are required" })
     }
 
     if (!isValidObjectId(b.staffId)) {
+      await session.abortTransaction()
+
       return res.status(400).json({ error: "Invalid staff ID" })
     }
 
-    const staff = await User.findById(b.staffId).lean()
+    const staff = await User.findById(b.staffId).session(session).lean()
+
     if (!staff) {
+      await session.abortTransaction()
+
       return res.status(400).json({ error: "Staff member not found" })
     }
 
     const duplicateSalarySlip = await SalarySlip.findOne({
       staffId: b.staffId,
       month: b.month,
-    }).lean()
+    })
+      .session(session)
+      .lean()
+
     if (duplicateSalarySlip) {
+      await session.abortTransaction()
+
       return res.status(400).json({
         error: `A slip for ${staff.fullName || staff.name} (${b.month}) already exists`,
       })
     }
 
-    const seq = await nextSeq("salarySlip")
+    // Counter increment is part of the same transaction
+    const seq = await nextSeq("salarySlip", session)
+
     const computedValues = compute(b)
 
-    const doc = await SalarySlip.create({
-      slipNo: `SLP-${b.month.replace("-", "")}-${String(seq).padStart(4, "0")}`,
-      staffId: staff._id,
-      staffName: staff.fullName || staff.name,
-      role: staff.role,
-      designation: staff.specialization || staff.role,
-      month: b.month,
-      ...computedValues,
-      workingDays: Number(b.workingDays) || 26,
-      presentDays: Number(b.presentDays) ?? (Number(b.workingDays) || 26),
-      mode: b.mode || "cash",
-      status: "generated",
-      generatedBy:
-        req.user.fullName || req.user.name || req.user.username || "Admin",
-    })
+    const doc = await SalarySlip.create(
+      [
+        {
+          slipNo: `SLP-${b.month.replace("-", "")}-${String(seq).padStart(4, "0")}`,
+          staffId: staff._id,
+          staffName: staff.fullName || staff.name,
+          role: staff.role,
+          designation: staff.specialization || staff.role,
+          month: b.month,
+          ...computedValues,
+          workingDays: Number(b.workingDays) || 26,
+          presentDays: Number(b.presentDays) ?? (Number(b.workingDays) || 26),
+          mode: b.mode || "cash",
+          status: "generated",
+          generatedBy:
+            req.user.fullName || req.user.name || req.user.username || "Admin",
+        },
+      ],
+      { session },
+    )
 
-    return res.status(201).json(doc)
+    await session.commitTransaction()
+
+    return res.status(201).json(doc[0])
   } catch (err) {
+    await session.abortTransaction()
+
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
@@ -123,13 +153,19 @@ router.put("/:id", allowRoles("admin", "clerk"), async (req, res, next) => {
       return res.status(404).json({ error: "Slip not found" })
     }
     if (existing.status === "paid") {
-      return res.status(400).json({ error: "Paid slips cannot be edited" })
+      return res.status(400).json({
+        error: "Paid slips cannot be edited",
+      })
     }
 
     const b = { ...req.body }
     delete b._id
 
-    const computedValues = compute({ ...existing, ...b })
+    const computedValues = compute({
+      ...existing,
+      ...b,
+    })
+
     const updateData = {
       ...b,
       ...computedValues,
@@ -155,17 +191,35 @@ router.post(
   "/:id/pay",
   allowRoles("admin", "clerk"),
   async (req, res, next) => {
+    const session = await mongoose.startSession()
+
     try {
+      session.startTransaction()
+
       if (!isValidObjectId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid slip ID" })
+        await session.abortTransaction()
+
+        return res.status(400).json({
+          error: "Invalid slip ID",
+        })
       }
 
-      const slip = await SalarySlip.findById(req.params.id)
+      const slip = await SalarySlip.findById(req.params.id).session(session)
+
       if (!slip) {
-        return res.status(404).json({ error: "Slip not found" })
+        await session.abortTransaction()
+
+        return res.status(404).json({
+          error: "Slip not found",
+        })
       }
+
       if (slip.status === "paid") {
-        return res.status(400).json({ error: "Already paid" })
+        await session.abortTransaction()
+
+        return res.status(400).json({
+          error: "Already paid",
+        })
       }
 
       const today = new Date().toISOString().slice(0, 10)
@@ -178,47 +232,81 @@ router.post(
       slip.mode = paymentMode
       slip.paidBy = paidBy
 
-      await slip.save()
+      await slip.save({ session })
 
-      await DailyAccount.create({
-        date: slip.paidOn || today,
-        type: "expense",
-        category: "Salary",
-        description: `Salary ${slip.month} — ${slip.staffName} (${slip.slipNo})`,
-        amount: slip.netPay,
-        mode: slip.mode || "cash",
-        recordedBy: paidBy || slip.paidBy || slip.generatedBy || "Admin",
-        slipNumber: slip.slipNo,
-        slipId: slip._id,
-      })
+      await DailyAccount.create(
+        [
+          {
+            date: slip.paidOn || today,
+            type: "expense",
+            category: "Salary",
+            description: `Salary ${slip.month} — ${slip.staffName} (${slip.slipNo})`,
+            amount: slip.netPay,
+            mode: slip.mode || "cash",
+            recordedBy: paidBy || slip.paidBy || slip.generatedBy || "Admin",
+            slipNumber: slip.slipNo,
+            slipId: slip._id,
+          },
+        ],
+        { session },
+      )
+
+      await session.commitTransaction()
 
       return res.json(slip)
     } catch (err) {
+      await session.abortTransaction()
+
       return next(err)
+    } finally {
+      await session.endSession()
     }
   },
 )
 
 //! DELETE /payroll/:id - Remove salary slip
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
+    session.startTransaction()
+
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid slip ID" })
+      await session.abortTransaction()
+
+      return res.status(400).json({
+        error: "Invalid slip ID",
+      })
     }
 
-    const deleted = await SalarySlip.findByIdAndDelete(req.params.id)
+    const deleted = await SalarySlip.findByIdAndDelete(req.params.id, {
+      session,
+    })
 
     if (!deleted) {
-      return res.status(404).json({ error: "Slip not found" })
+      await session.abortTransaction()
+
+      return res.status(404).json({
+        error: "Slip not found",
+      })
     }
 
-    await DailyAccount.deleteMany({
-      slipId: deleted._id,
-    })
+    await DailyAccount.deleteMany(
+      {
+        slipId: deleted._id,
+      },
+      { session },
+    )
+
+    await session.commitTransaction()
 
     return res.json({ ok: true })
   } catch (err) {
+    await session.abortTransaction()
+
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 

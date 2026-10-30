@@ -27,6 +27,7 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
     }
 
     const assets = await Asset.find(query).sort({ createdAt: -1 }).lean()
+
     return res.json(assets)
   } catch (err) {
     return next(err)
@@ -35,6 +36,8 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! POST /assets - Create new asset record
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
+  const session = await mongoose.startSession()
+
   try {
     const b = req.body
 
@@ -44,35 +47,59 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       })
     }
 
-    const seq = await nextSeq("assetTag")
-    const tag = `AST-${String(seq).padStart(5, "0")}`
+    let createdAsset
 
-    const doc = await Asset.create({
-      tag,
-      status: "in-use",
-      maintenance: [],
-      ...b,
+    await session.withTransaction(async () => {
+      // Generate asset tag inside the same transaction
+      const seq = await nextSeq("assetTag", session)
+      const tag = `AST-${String(seq).padStart(5, "0")}`
+
+      // Create asset inside the transaction
+      const [doc] = await Asset.create(
+        [
+          {
+            tag,
+            status: "in-use",
+            maintenance: [],
+            ...b,
+          },
+        ],
+        { session },
+      )
+
+      createdAsset = doc
+
+      // Register asset purchase in Daily Accounts
+      if (Number(doc.cost) > 0) {
+        await DailyAccount.create(
+          [
+            {
+              date: doc.purchaseDate || new Date().toISOString().slice(0, 10),
+
+              type: "expense",
+              category: "Assets",
+              description: `Asset purchase: ${doc.name} (${doc.tag})`,
+              amount: Number(doc.cost),
+              mode: "cash",
+              recordedBy:
+                req.user?.fullName ||
+                req.user?.name ||
+                req.user?.username ||
+                "Staff",
+              assetId: doc._id,
+              assetName: doc.name,
+            },
+          ],
+          { session },
+        )
+      }
     })
 
-    // Register asset purchase in Daily Accounts
-    if (Number(doc.cost) > 0) {
-      await DailyAccount.create({
-        date: doc.purchaseDate || new Date().toISOString().slice(0, 10),
-        type: "expense",
-        category: "Assets",
-        description: `Asset purchase: ${doc.name} (${doc.tag})`,
-        amount: Number(doc.cost),
-        mode: "cash",
-        recordedBy:
-          req.user?.fullName || req.user?.name || req.user?.username || "Staff",
-        assetId: doc._id,
-        assetName: doc.name,
-      })
-    }
-
-    return res.status(201).json(doc)
+    return res.status(201).json(createdAsset)
   } catch (err) {
     return next(err)
+  } finally {
+    await session.endSession()
   }
 })
 
@@ -90,7 +117,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     let updatedAsset
 
     await session.withTransaction(async () => {
-      // Find the existing asset first
+      // Find the existing asset inside the transaction
       const existingAsset = await Asset.findById(req.params.id)
         .session(session)
         .lean()
@@ -111,9 +138,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
         status,
       }
 
-      // Update Asset
+      // Update Asset inside transaction
       updatedAsset = await Asset.findByIdAndUpdate(req.params.id, updateData, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
         session,
       }).lean()
@@ -152,8 +179,8 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
           await purchaseAccount.save({ session })
         } else {
-          // Handles an old asset that was created before
-          // purchase-account registration was implemented.
+          // Handles old assets that were created before
+          // DailyAccount registration was implemented.
           await DailyAccount.create(
             [
               {
@@ -206,48 +233,81 @@ router.post(
   "/:id/maintenance",
   allowRoles(...STAFF),
   async (req, res, next) => {
+    const session = await mongoose.startSession()
+
     try {
       if (!isValidObjectId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid asset ID format" })
-      }
-
-      const entry = {
-        date: req.body.date || new Date().toISOString().slice(0, 10),
-        description: req.body.description || "",
-        cost: Number(req.body.cost) || 0,
-        by:
-          req.user?.fullName || req.user?.name || req.user?.username || "Staff",
-      }
-
-      // Use $push operator to append to array field
-      const updatedAsset = await Asset.findByIdAndUpdate(
-        req.params.id,
-        { $push: { maintenance: entry } },
-        { new: true, runValidators: true },
-      ).lean()
-
-      if (!updatedAsset) {
-        return res.status(404).json({ error: "Asset not found" })
-      }
-
-      // Automatically create expense log if cost is incurred
-      if (entry.cost > 0) {
-        await DailyAccount.create({
-          date: entry.date,
-          type: "expense",
-          category: "Maintenance",
-          description: `${updatedAsset.name} (${updatedAsset.tag}): ${updatedAsset.category}`,
-          amount: entry.cost,
-          mode: "cash",
-          recordedBy: entry.by,
-          assetId: updatedAsset._id,
-          assetName: updatedAsset.name,
+        return res.status(400).json({
+          error: "Invalid asset ID format",
         })
       }
 
+      let updatedAsset
+
+      await session.withTransaction(async () => {
+        const entry = {
+          date: req.body.date || new Date().toISOString().slice(0, 10),
+          description: req.body.description || "",
+          cost: Number(req.body.cost) || 0,
+          by:
+            req.user?.fullName ||
+            req.user?.name ||
+            req.user?.username ||
+            "Staff",
+        }
+
+        // Add maintenance record inside transaction
+        updatedAsset = await Asset.findByIdAndUpdate(
+          req.params.id,
+          {
+            $push: {
+              maintenance: entry,
+            },
+          },
+          {
+            returnDocument: "after",
+            runValidators: true,
+            session,
+          },
+        ).lean()
+
+        if (!updatedAsset) {
+          throw new Error("ASSET_NOT_FOUND")
+        }
+
+        // Automatically create expense log
+        // inside the SAME transaction
+        if (entry.cost > 0) {
+          await DailyAccount.create(
+            [
+              {
+                date: entry.date,
+                type: "expense",
+                category: "Maintenance",
+                description: `${updatedAsset.name} (${updatedAsset.tag}): ${updatedAsset.category}`,
+                amount: entry.cost,
+                mode: "cash",
+                recordedBy: entry.by,
+                assetId: updatedAsset._id,
+                assetName: updatedAsset.name,
+              },
+            ],
+            { session },
+          )
+        }
+      })
+
       return res.json(updatedAsset)
     } catch (err) {
+      if (err.message === "ASSET_NOT_FOUND") {
+        return res.status(404).json({
+          error: "Asset not found",
+        })
+      }
+
       return next(err)
+    } finally {
+      await session.endSession()
     }
   },
 )
@@ -256,15 +316,21 @@ router.post(
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid asset ID format" })
+      return res.status(400).json({
+        error: "Invalid asset ID format",
+      })
     }
 
     const deleted = await Asset.findByIdAndDelete(req.params.id)
     if (!deleted) {
-      return res.status(404).json({ error: "Asset not found" })
+      return res.status(404).json({
+        error: "Asset not found",
+      })
     }
 
-    return res.json({ ok: true })
+    return res.json({
+      ok: true,
+    })
   } catch (err) {
     return next(err)
   }
