@@ -35,8 +35,8 @@ const inventoryItemSchema = new mongoose.Schema(
   },
 )
 
+// Useful inventory-item lookup/sorting
 inventoryItemSchema.index({ name: 1 })
-inventoryItemSchema.index({ status: 1 })
 
 export const InventoryItem = mongoose.model(
   "InventoryItem",

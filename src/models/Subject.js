@@ -48,7 +48,4 @@ const subjectSchema = new mongoose.Schema(
   },
 )
 
-// subjectSchema.index({ name: 1 })
-// subjectSchema.index({ code: 1 })
-
 export const Subject = mongoose.model("Subject", subjectSchema, "subjects")

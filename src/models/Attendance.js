@@ -30,6 +30,8 @@ const attendanceSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
+// Main attendance lookup
+// Prevents duplicate attendance for same class/date
 attendanceSchema.index({ classId: 1, date: 1 }, { unique: true })
 
 export const Attendance = mongoose.model(

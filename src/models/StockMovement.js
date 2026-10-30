@@ -42,6 +42,7 @@ const stockMovementSchema = new mongoose.Schema(
   },
 )
 
+// For item movement history sorted newest-first
 stockMovementSchema.index({ itemId: 1, createdAt: -1 })
 
 export const StockMovement = mongoose.model(

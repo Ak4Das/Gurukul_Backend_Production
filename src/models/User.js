@@ -98,6 +98,4 @@ userSchema.methods.toPublicJSON = function () {
   return obj
 }
 
-// userSchema.index({ username: 1 });
-
 export const User = mongoose.model("User", userSchema, "users")

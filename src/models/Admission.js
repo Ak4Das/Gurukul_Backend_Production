@@ -106,8 +106,6 @@ const admissionSchema = new mongoose.Schema(
   },
 )
 
-// admissionSchema.index({ regNo: 1 });
-admissionSchema.index({ status: 1 })
 
 export const Admission = mongoose.model(
   "Admission",

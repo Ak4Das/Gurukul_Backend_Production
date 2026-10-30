@@ -45,7 +45,7 @@ const studentSchema = new mongoose.Schema(
     },
     languages: {
       type: String,
-      default:"",
+      default: "",
     },
     classId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -93,8 +93,9 @@ const studentSchema = new mongoose.Schema(
   },
 )
 
-// studentSchema.index({ admissionNo: 1 });
+// Class-wise student queries are important
 studentSchema.index({ classId: 1 })
+// Efficient parent to students lookup
 studentSchema.index({ parentIds: 1 })
 
 export const Student = mongoose.model("Student", studentSchema, "students")

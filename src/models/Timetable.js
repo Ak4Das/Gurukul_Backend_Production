@@ -58,7 +58,7 @@ const timetablePeriodSchema = new mongoose.Schema(
       trim: true,
     },
   },
-  { _id: false }
+  { _id: false },
 )
 
 const timetableSchema = new mongoose.Schema(
@@ -80,7 +80,7 @@ const timetableSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 )
 
 export const Timetable = mongoose.model(

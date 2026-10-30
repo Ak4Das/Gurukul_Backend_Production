@@ -11,19 +11,16 @@ const logbookSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Class",
       required: [true, "Class ID is required"],
-      index: true,
     },
     subjectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Subject",
       required: [true, "Subject ID is required"],
-      index: true,
     },
     date: {
       type: String, // 'YYYY-MM-DD'
       required: [true, "Date is required"],
       match: [/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"],
-      index: true,
     },
     topicCovered: {
       type: String,
@@ -46,7 +43,7 @@ const logbookSchema = new mongoose.Schema(
   },
 )
 
+// Class-wise chronological logbook
 logbookSchema.index({ classId: 1, date: -1 })
-logbookSchema.index({ teacherId: 1, date: -1 })
 
 export const Logbook = mongoose.model("Logbook", logbookSchema, "logbook")

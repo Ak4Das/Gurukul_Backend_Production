@@ -40,7 +40,9 @@ const salarySlipSchema = new mongoose.Schema(
   },
 )
 
+// Prevents duplicate salary slip per staff/month
 salarySlipSchema.index({ staffId: 1, month: 1 }, { unique: true })
+// Useful for monthly payroll/status queries
 salarySlipSchema.index({ month: 1, status: 1 })
 
 export const SalarySlip = mongoose.model(

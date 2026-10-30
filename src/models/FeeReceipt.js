@@ -93,8 +93,9 @@ const feeReceiptSchema = new mongoose.Schema(
   },
 )
 
-// feeReceiptSchema.index({ receiptNo: 1 });
+// Student payment-history lookup
 feeReceiptSchema.index({ studentId: 1 })
+// Date-based receipt listing/reporting
 feeReceiptSchema.index({ date: -1 })
 
 export const FeeReceipt = mongoose.model(

@@ -62,7 +62,9 @@ const markSchema = new mongoose.Schema(
   },
 )
 
+// Prevents duplicate marks for exam/class/subject
 markSchema.index({ examId: 1, classId: 1, subjectId: 1 }, { unique: true })
+// Useful for exam status queries
 markSchema.index({ examId: 1, status: 1 })
 
 export const Mark = mongoose.model("Mark", markSchema, "marks")

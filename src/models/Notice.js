@@ -20,6 +20,7 @@ const noticeSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
+// Published/status-filtered notices sorted by date
 noticeSchema.index({ status: 1, date: -1 })
 
 export const Notice = mongoose.model("Notice", noticeSchema, "notices")

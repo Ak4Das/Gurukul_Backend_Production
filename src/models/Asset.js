@@ -62,9 +62,7 @@ const assetSchema = new mongoose.Schema(
   },
 )
 
-// assetSchema.index({ tag: 1 });
-assetSchema.index({ status: 1 })
+// Potentially useful for category filtering
 assetSchema.index({ category: 1 })
-assetSchema.index({ name: "text", tag: "text" })
 
 export const Asset = mongoose.model("Asset", assetSchema, "assets")

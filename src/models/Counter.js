@@ -8,6 +8,7 @@ const counterSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
+// nextSeq() searches by key and each sequence must be unique
 counterSchema.index({ key: 1 }, { unique: true })
 
 export const Counter = mongoose.model("Counter", counterSchema, "counters")

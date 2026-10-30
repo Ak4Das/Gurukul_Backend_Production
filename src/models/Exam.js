@@ -49,7 +49,7 @@ const examSchema = new mongoose.Schema(
   },
 )
 
+// Useful for chronological exam listing
 examSchema.index({ startDate: -1 })
-examSchema.index({ status: 1 })
 
 export const Exam = mongoose.model("Exam", examSchema, "exams")

@@ -16,7 +16,6 @@ const activitySchema = new mongoose.Schema(
       type: String, // 'YYYY-MM-DD'
       required: [true, "Date is required"],
       match: [/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"],
-      index: true,
     },
     classIds: [
       {

@@ -78,11 +78,11 @@ const dailyAccountSchema = new mongoose.Schema(
   },
 )
 
-dailyAccountSchema.index({ date: 1 })
-dailyAccountSchema.index({ type: 1 })
+// Date-based ledger/report queries
 dailyAccountSchema.index({ date: -1 })
 
 // sparse: true is because not every DailyAccount is a salary transaction. You have other categories such as Fees, Donation, Utilities, Assets, etc.
+// Enforces one accounting entry per salary slip
 dailyAccountSchema.index(
   { slipId: 1 },
   {

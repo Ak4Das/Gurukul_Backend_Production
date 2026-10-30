@@ -21,6 +21,7 @@ const ptmSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
+// Useful for chronological PTM listing
 ptmSchema.index({ date: -1 })
 
 export const Ptm = mongoose.model("Ptm", ptmSchema, "ptms")

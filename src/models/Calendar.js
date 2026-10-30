@@ -31,6 +31,7 @@ const calendarEventSchema = new mongoose.Schema(
   },
 )
 
+// Useful for type-filtered chronological queries
 calendarEventSchema.index({ type: 1, date: 1 })
 
 export const Calendar = mongoose.model(

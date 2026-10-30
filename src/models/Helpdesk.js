@@ -24,7 +24,6 @@ const helpdeskTicketSchema = new mongoose.Schema(
         "Other",
       ],
       default: "General Query",
-      index: true,
     },
     priority: {
       type: String,
@@ -35,7 +34,6 @@ const helpdeskTicketSchema = new mongoose.Schema(
       type: String,
       enum: ["open", "in progress", "resolved", "closed"],
       default: "open",
-      index: true,
     },
     raisedBy: {
       type: String,
@@ -59,7 +57,9 @@ const helpdeskTicketSchema = new mongoose.Schema(
   },
 )
 
+// Status-filtered newest-first tickets
 helpdeskTicketSchema.index({ status: 1, createdAt: -1 })
+// Category + status filtering
 helpdeskTicketSchema.index({ category: 1, status: 1 })
 
 export const Helpdesk = mongoose.model(
