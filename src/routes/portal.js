@@ -147,12 +147,18 @@ router.get("/parent", allowRoles("parent"), async (req, res, next) => {
 
     // Query children matching parentId directly using MongoDB query filter
     const children = await Student.find({
-      parentIds: { $in: [parent._id] },
+      parentIds: parent._id,
     }).lean()
+
+    const childrenClassIds = [
+      ...new Set(children.map((c) => c.classId.toString())),
+    ]
 
     const [snaps, ptm] = await Promise.all([
       Promise.all(children.map((child) => studentSnapshot(child._id))),
-      Ptm.find().sort({ date: -1 }).lean(),
+      Ptm.find({ classIds: { $in: childrenClassIds } })
+        .sort({ date: -1 })
+        .lean(),
     ])
 
     return res.json({ parent, children: snaps, ptm })
