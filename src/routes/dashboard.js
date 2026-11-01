@@ -8,10 +8,8 @@ import { Class } from "../models/Class.js"
 import { Subject } from "../models/Subject.js"
 import { Parent } from "../models/Parent.js"
 import { FeeReceipt } from "../models/FeeReceipt.js"
-import { Attendance } from "../models/Attendance.js"
 import { Exam } from "../models/Exam.js"
 import { Helpdesk } from "../models/Helpdesk.js"
-import { Admission } from "../models/Admission.js"
 import { Mark } from "../models/Mark.js"
 import { Timetable } from "../models/Timetable.js"
 // middleware imports
@@ -20,14 +18,12 @@ import { authRequired } from "../middleware/auth.js"
 const router = Router()
 router.use(authRequired)
 
-// ==========================================
-// GET /dashboard/stats - Admin Dashboard Analytics
-// ==========================================
+//! GET /dashboard/stats - Admin Dashboard Analytics
 router.get("/stats", async (req, res, next) => {
   try {
     const today = new Date().toISOString().slice(0, 10)
 
-    // Build rolling 7-day date strings array
+    // Build rolling 7-day date (yyyy-mm-dd) strings array
     const feeDates = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
@@ -42,16 +38,17 @@ router.get("/stats", async (req, res, next) => {
       subjects,
       parents,
       todayFeeStats,
-      attendanceStats,
       activeExams,
       helpdesk,
       genderMixStats,
       feeTrendStats,
-      pendingAdmissions,
-      sheetsAwaitingPublish,
-      activeStudentsList,
     ] = await Promise.all([
       // Total & Active Students Count
+      // aggregate() is MongoDB's aggregation framework. and Student.aggregate tells mongoose that Run a MongoDB aggregation pipeline on the Student collection.
+      // $group is used when you want to combine documents into groups and calculate something for each group.
+      // _id: null means i want one overall group containing all students.
+      // totalStudents: { $sum: 1 } means For every document in the group, MongoDB adds 1
+      // $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } this means For every student, check whether their status is "active". If yes, add 1; otherwise add 0.
       Student.aggregate([
         {
           $group: {
@@ -65,51 +62,42 @@ router.get("/stats", async (req, res, next) => {
       ]),
 
       // Count operations
+      // counts only users where role is teacher and status is active
       User.countDocuments({ role: "teacher", status: "active" }),
+      // counts only classes where status is not equal to archived
       Class.countDocuments({ status: { $ne: "archived" } }),
+      // count all subjects
       Subject.countDocuments(),
+      // counts only classes where status is active
       Parent.countDocuments({ status: "active" }),
 
       // Today's Fee Receipts aggregated sum and count
+      // FeeReceipt documents -> $match -> $group -> Final result
+      // $match is used to filter documents it is similar to the filter.
+      // $group combine the remaining documents after $match and calculate todaysCollection from them.
+      // todaysCollection is the sum of all feeReceipts amountPaid value
       FeeReceipt.aggregate([
         { $match: { date: today, status: { $ne: "refunded" } } },
         {
           $group: {
             _id: null,
             todaysCollection: { $sum: "$amountPaid" },
-            receiptsToday: { $sum: 1 },
-          },
-        },
-      ]),
-
-      // Attendance records breakdown for today
-      Attendance.aggregate([
-        { $match: { date: today } },
-        { $unwind: "$records" },
-        {
-          $group: {
-            _id: null,
-            marked: { $sum: 1 },
-            present: {
-              $sum: {
-                $cond: [
-                  { $in: ["$records.status", ["present", "late", "halfday"]] },
-                  1,
-                  0,
-                ],
-              },
-            },
           },
         },
       ]),
 
       // Active Exams Count
+      // counts only exams where status must be one of scheduled or ongoing
       Exam.countDocuments({ status: { $in: ["scheduled", "ongoing"] } }),
 
       // Open Incident / Support counts
+      // counts only helpdesk tickets where status is open
       Helpdesk.countDocuments({ status: "open" }),
 
       // Gender distribution aggregation
+      // The value of _id determines which group a document belongs to.
+      // $ifNull means If $gender is null or missing, use "other" instead.
+      // $toLower converts the resulting string to lowercase.
       Student.aggregate([
         { $match: { status: "active" } },
         {
@@ -135,57 +123,22 @@ router.get("/stats", async (req, res, next) => {
           },
         },
       ]),
-
-      // Admissions and Mark Sheets
-      Admission.countDocuments({ status: "registered" }),
-      Mark.countDocuments({ status: "submitted" }),
-
-      // Active students dob payload for birthday matching
-      Student.find({ status: "active", dob: { $ne: null } })
-        .select("firstName lastName dob")
-        .lean(),
     ])
 
-    // Format Gender Mix
+    // count number of male and female students
     const genderMix = {}
+
     genderMixStats.forEach((g) => {
       genderMix[g._id] = g.count
     })
 
-    // Format 7-day Fee Trend with 0 fallback
+    // previous 7 days total fee collection
     const feeTrendMap = new Map(feeTrendStats.map((f) => [f._id, f.amount]))
+
     const feeTrend = feeDates.map((date) => ({
       date,
       amount: feeTrendMap.get(date) || 0,
     }))
-
-    // Birthday calculations (within upcoming 7 days)
-    const birthdays = []
-    const now = new Date()
-    const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-
-    for (const s of activeStudentsList) {
-      if (!s.dob) continue
-      const dob = new Date(s.dob)
-      if (Number.isNaN(dob.getTime())) continue
-
-      let next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate())
-      if (next < todayZero) {
-        next.setFullYear(now.getFullYear() + 1)
-      }
-
-      const inDays = Math.round((next - todayZero) / 86400000)
-      if (inDays <= 7) {
-        const local = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`
-        birthdays.push({
-          name: `${s.firstName} ${s.lastName || ""}`.trim(),
-          date: local,
-          inDays,
-          turns: next.getFullYear() - dob.getFullYear(),
-        })
-      }
-    }
-    birthdays.sort((a, b) => a.inDays - b.inDays)
 
     return res.json({
       activeStudents: studentCounts[0]?.activeStudents || 0,
@@ -196,18 +149,10 @@ router.get("/stats", async (req, res, next) => {
       parents,
       todaysCollection: todayFeeStats[0]?.todaysCollection || 0,
       outstanding: 0,
-      attendanceToday: {
-        present: attendanceStats[0]?.present || 0,
-        marked: attendanceStats[0]?.marked || 0,
-      },
       activeExams,
       openTickets: helpdesk,
       genderMix,
       feeTrend,
-      birthdays,
-      pendingAdmissions,
-      sheetsAwaitingPublish,
-      receiptsToday: todayFeeStats[0]?.receiptsToday || 0,
     })
   } catch (err) {
     return next(err)

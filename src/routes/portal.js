@@ -22,26 +22,44 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id)
 }
 
-// ---------- Student Snapshot Helper ----------
+// Student Snapshot Helper Function
 async function studentSnapshot(studentId) {
   if (!isValidObjectId(studentId)) return null
 
   const student = await Student.findById(studentId).lean()
   if (!student) return null
 
+  const classId = student.classId
+
   // Fetch related records concurrently
   const [cls, allAttendance, sheets, exams, subjects, receipts] =
     await Promise.all([
-      student.classId ? Class.findById(student.classId).lean() : null,
-      Attendance.find({ classId: student.classId }).lean(),
-      Mark.find({ classId: student.classId, status: "published" }).lean(),
-      Exam.find().lean(),
-      Subject.find().lean(),
+      classId ? Class.findById(classId).lean() : null,
+      classId
+        ? Attendance.find({
+            classId: classId,
+            "records.studentId": student._id,
+          }).lean()
+        : [],
+      classId
+        ? Mark.find({ classId: classId, status: "published" }).lean()
+        : [],
+      classId
+        ? Exam.find({
+            classIds: classId,
+          }).lean()
+        : [],
+      classId
+        ? Subject.find({
+            classIds: classId,
+          }).lean()
+        : [],
       FeeReceipt.find({ studentId }).sort({ date: -1 }).lean(),
     ])
 
   // Attendance summary calculation
   const summary = { present: 0, absent: 0, late: 0, halfday: 0, leave: 0 }
+  // Attendance status by date [{date,status},...]
   const recent = []
   const studentIdStr = student._id.toString()
 
@@ -81,17 +99,12 @@ async function studentSnapshot(studentId) {
     })
   }
 
-  // Outstanding fee balance calculation
-  const balance = 0
-
   return {
     student,
-    className: cls
-      ? `${cls.name} ${cls.section} (${cls.academicYear})`
-      : "",
+    className: cls ? `${cls.name} ${cls.section} (${cls.academicYear})` : "",
     attendance: { summary, recent: recent.slice(0, 30) },
     results,
-    fees: { receipts, balance },
+    fees: { receipts, balance: 0 },
     activeExams: exams.filter((e) =>
       ["scheduled", "ongoing"].includes(e.status),
     ),

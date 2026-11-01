@@ -68,10 +68,11 @@ app.get("/api/public/settings", async (req, res, next) => {
     const doc = await Settings.findOne({ key: "school" }).lean()
     const v = doc?.value || {}
     return res.json({
-      schoolName: v.schoolName || "Demo School",
+      schoolName: v.schoolName || "",
+      address: v.address || "",
+      phone: v.phone || "",
+      email: v.email || "",
       logoUrl: v.logoUrl || "",
-      primaryColor: v.primaryColor || "#0f2248",
-      accentColor: v.accentColor || "#16a34a",
     })
   } catch (err) {
     return next(err)
