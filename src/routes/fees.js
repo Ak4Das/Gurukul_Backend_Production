@@ -142,7 +142,10 @@ router.get("/compute/:studentId", async (req, res, next) => {
 //! GET /fees - Receipts list
 router.get("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 100)
+
     const query = {}
+
     if (req.query.status) {
       query.status = String(req.query.status)
     }
@@ -150,7 +153,18 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
       query.studentId = req.query.studentId
     }
 
-    const receipts = await FeeReceipt.find(query).sort({ createdAt: -1 })
+    let dbQuery = FeeReceipt.find(query)
+      .sort({
+        date: -1,
+        createdAt: -1,
+      })
+      .lean()
+
+    if (limit > 0) {
+      dbQuery = dbQuery.limit(limit)
+    }
+
+    const receipts = await dbQuery
     return res.json(receipts)
   } catch (err) {
     return next(err)

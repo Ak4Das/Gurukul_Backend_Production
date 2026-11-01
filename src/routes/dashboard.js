@@ -13,7 +13,7 @@ import { Helpdesk } from "../models/Helpdesk.js"
 import { Mark } from "../models/Mark.js"
 import { Timetable } from "../models/Timetable.js"
 // middleware imports
-import { authRequired } from "../middleware/auth.js"
+import { allowRoles, authRequired } from "../middleware/auth.js"
 
 const router = Router()
 router.use(authRequired)
@@ -159,98 +159,135 @@ router.get("/stats", async (req, res, next) => {
   }
 })
 
-// ==========================================
-// GET /dashboard/teacher - Teacher Specific Dashboard
-// ==========================================
-
-router.get("/teacher", async (req, res, next) => {
+//! GET /dashboard/teacher - Teacher Specific Dashboard
+router.get("/teacher", allowRoles("teacher"), async (req, res, next) => {
   try {
     const teacherId = req.user.id || req.user._id
 
-    const [
-      classesList,
-      subjectsList,
-      timetablesList,
-      activeExamsCount,
-      marksList,
-    ] = await Promise.all([
-      Class.find({}).lean(),
-      Subject.find({}).lean(),
-      Timetable.find({}).lean(),
-      Exam.countDocuments({
-        status: { $in: ["scheduled", "ongoing"] },
-      }),
-      Mark.find({ status: "draft" }).select("classId").lean(),
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(401).json({
+        error: "Invalid teacher identity",
+      })
+    }
+
+    const teacherObjectId = new mongoose.Types.ObjectId(teacherId)
+
+    //? Get only timetable records containing this teacher
+    // $match => Give me only Timetable documents where at least one element inside periods has this teacherId.
+    // periods.teacherId => Because teacherId isn't directly on the timetable document It's nested inside each array element
+    // $project controls what fields the aggregation returns.
+    // classId: 1 means Include classId.
+    // periods: { $filter: ...} => Create a new periods array containing only the periods that satisfy our condition.
+    // input: "$periods" means Take the existing periods array and examine each element.
+    // as: "period" => This gives the current array element a temporary variable name 'period'
+    // $$period.teacherId => Get the teacherId property from the current period.
+    const teacherTimetables = await Timetable.aggregate([
+      {
+        $match: {
+          "periods.teacherId": teacherObjectId, // In aggregation teacherObjectId must be a valid object id not a string id
+        },
+      },
+      {
+        $project: {
+          classId: 1,
+          periods: {
+            $filter: {
+              input: "$periods",
+              as: "period",
+              cond: {
+                $eq: ["$$period.teacherId", teacherObjectId],
+              },
+            },
+          },
+        },
+      },
     ])
 
-    // Map helper for quick lookup
+    // 2. Extract unique class IDs and subject IDs
+    const classIdStrings = [
+      ...new Set(
+        teacherTimetables.map((t) => t.classId?.toString()).filter(Boolean),
+      ),
+    ]
+
+    // flatMap((t) => t.periods || []) takes the periods from every timetable and combines them into one flat array.
+    const subjectIdStrings = [
+      ...new Set(
+        teacherTimetables
+          .flatMap((t) => t.periods || [])
+          .map((p) => p.subjectId?.toString())
+          .filter(Boolean),
+      ),
+    ]
+
+    const myClassObjectIds = classIdStrings
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id))
+
+    const mySubjectObjectIds = subjectIdStrings
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id))
+
+    // Fetch only relevant classes and subjects
+    const [classes, subjects, activeExamsCount, draftSheets] =
+      await Promise.all([
+        Class.find({
+          _id: { $in: classIdStrings },
+        })
+          .select("_id name section academicYear")
+          .lean(),
+
+        Subject.find({
+          _id: { $in: mySubjectObjectIds },
+        })
+          .select("_id name")
+          .lean(),
+
+        Exam.countDocuments({
+          status: {
+            $in: ["scheduled", "ongoing"],
+          },
+          classIds: {
+            $in: classIdStrings,
+          },
+        }),
+
+        Mark.countDocuments({
+          status: "draft",
+          classId: {
+            $in: classIdStrings,
+          },
+        }),
+      ])
+
     const classMap = new Map(
-      classesList.map((c) => [
+      classes.map((c) => [
         c._id.toString(),
         `${c.name} ${c.section} (${c.academicYear})`,
       ]),
     )
 
-    const subjectMap = new Map(
-      subjectsList.map((s) => [s._id.toString(), s.name]),
-    )
+    const subjectMap = new Map(subjects.map((s) => [s._id.toString(), s.name]))
 
-    const classLabel = (id) => (id ? classMap.get(id.toString()) || "?" : "?")
-
-    // Extract teacher's timetable periods
+    // Build teacher periods
     const teacherPeriods = []
 
-    for (const tt of timetablesList) {
-      for (const p of tt.periods || []) {
-        if (p.teacherId?.toString() === teacherId.toString()) {
-          teacherPeriods.push({
-            ...(p.toObject ? p.toObject() : p),
-            classId: tt.classId,
-            className: classLabel(tt.classId),
-            subjectName:
-              p.subjectName || subjectMap.get(p.subjectId?.toString()) || "?",
-          })
-        }
+    for (const timetable of teacherTimetables) {
+      for (const period of timetable.periods || []) {
+        teacherPeriods.push({
+          ...period,
+          classId: timetable.classId,
+          className:
+            classMap.get(timetable.classId?.toString()) || "Unknown Class",
+          subjectName:
+            subjectMap.get(period.subjectId?.toString()) ||
+            period.subjectName ||
+            "Unknown Subject",
+        })
       }
     }
 
-    // Extract unique classes taught by teacher
-    const myClassObjectIds = [
-      ...new Set(
-        teacherPeriods.map((p) => p.classId?.toString()).filter(Boolean),
-      ),
-    ]
-      .filter((id) => mongoose.Types.ObjectId.isValid(id))
-      .map((id) => new mongoose.Types.ObjectId(id))
-
-    // Extract unique subjects taught by teacher
-    const mySubjectIds = [
-      ...new Set(
-        teacherPeriods.map((p) => p.subjectId?.toString()).filter(Boolean),
-      ),
-    ]
-
-    // Aggregate student counts per teacher's class
-    const studentCountPerClass = await Student.aggregate([
-      {
-        $match: {
-          status: "active",
-          classId: { $in: myClassObjectIds },
-        },
-      },
-      {
-        $group: {
-          _id: "$classId",
-          count: { $sum: 1 },
-        },
-      },
-    ])
-
-    const studentCountMap = new Map(
-      studentCountPerClass.map((sc) => [sc._id.toString(), sc.count]),
-    )
-
-    // Today's Periods
+    // Today's periods
     const dayName = new Date().toLocaleDateString("en-US", {
       weekday: "long",
     })
@@ -259,16 +296,33 @@ router.get("/teacher", async (req, res, next) => {
       .filter((p) => p.day === dayName)
       .sort((a, b) => a.period - b.period)
 
-    // Compute stats metrics
-    const myClassIdStrings = myClassObjectIds.map((id) => id.toString())
+    // Student count per teacher class
+    const studentCounts = await Student.aggregate([
+      {
+        $match: {
+          status: "active",
+          classId: {
+            $in: myClassObjectIds,
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$classId",
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+    ])
 
-    const draftSheets = marksList.filter((m) =>
-      myClassIdStrings.includes(m.classId?.toString()),
-    ).length
+    const studentCountMap = new Map(
+      studentCounts.map((item) => [item._id.toString(), item.count]),
+    )
 
     const totalStudentsInMyClasses = Array.from(
       studentCountMap.values(),
-    ).reduce((acc, val) => acc + val, 0)
+    ).reduce((total, count) => total + count, 0)
 
     return res.json({
       dayName,
@@ -276,8 +330,8 @@ router.get("/teacher", async (req, res, next) => {
       todaysPeriods,
 
       stats: {
-        classes: myClassIdStrings.length,
-        subjects: mySubjectIds.length,
+        classes: myClassObjectIds.length,
+        subjects: mySubjectObjectIds.length,
         students: totalStudentsInMyClasses,
         draftSheets,
         activeExams: activeExamsCount,

@@ -87,7 +87,7 @@ router.post("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
   }
 })
 
-//! GET /attendance/summary/week - Last 7 days summary for dashboard
+//! GET /attendance/summary/week - Last 7 days entire school attendance summary for dashboard
 router.get("/summary/week", async (req, res, next) => {
   try {
     const days = []

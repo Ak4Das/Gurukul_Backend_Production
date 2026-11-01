@@ -21,12 +21,26 @@ function isValidObjectId(id) {
 //! GET /admissions - List admission applications
 router.get("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    const query = {}
+    const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 100)
+
+    const filters = {}
+
     if (req.query.status) {
-      query.status = String(req.query.status)
+      filters.status = String(req.query.status)
     }
 
-    const admissions = await Admission.find(query).sort({ createdAt: -1 })
+    let query = Admission.find(filters)
+      .sort({
+        createdAt: -1,
+      })
+      .lean()
+
+    if (limit > 0) {
+      query = query.limit(limit)
+    }
+
+    const admissions = await query
+
     return res.json(admissions)
   } catch (err) {
     return next(err)
@@ -355,7 +369,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
       app.studentId = createdStudent._id
       app.admissionNo = admNo
       app.enrolledClassId = classId
-      
+
       await app.save({ session })
 
       // --------------------------------------------------
