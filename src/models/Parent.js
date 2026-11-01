@@ -15,6 +15,7 @@ const parentSchema = new mongoose.Schema(
       type: String,
       trim: true,
       required: [true, "Mobile number is required"],
+      unique: true,
     },
     email: {
       type: String,

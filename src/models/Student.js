@@ -93,19 +93,10 @@ const studentSchema = new mongoose.Schema(
   },
 )
 
-// Class-wise student queries are important
+// Supports class-based student filtering.
 studentSchema.index({ classId: 1 })
 
-// Efficient parent to students lookup
-studentSchema.index({ parentIds: 1 })
-
-// Student list filtering
+// Supports queries filtering students by status.
 studentSchema.index({ status: 1 })
-
-// Class + status filtering
-studentSchema.index({
-  classId: 1,
-  status: 1,
-})
 
 export const Student = mongoose.model("Student", studentSchema, "students")

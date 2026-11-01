@@ -90,27 +90,25 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
     }
 
     // Base filters
-    const match = {}
+    // If you added baseMatch.status = status then the entire aggregation would be restricted to the selected status.
+    // Consequently, the statusCounts calculation would only see active students when the active tab was selected.
+    // We need status counts for all statuses even when the currently selected StatusTab is only "active"
+    const baseMatch = {}
 
     if (classId) {
-      match.classId = new mongoose.Types.ObjectId(classId)
+      baseMatch.classId = new mongoose.Types.ObjectId(classId)
     }
 
     if (gender) {
-      match.gender = gender
+      baseMatch.gender = gender
     }
 
     // "\\S" => string containing at least one non-whitespace character.
     if (hasAllergies === "true") {
-      match.allergies = {
+      baseMatch.allergies = {
         $regex: "\\S",
       }
     }
-
-    // If you added baseMatch.status = status then the entire aggregation would be restricted to the selected status.
-    // Consequently, the statusCounts calculation would only see active students when the active tab was selected.
-    // We need status counts for all statuses even when the currently selected StatusTab is only "active"
-    const baseMatch = { ...match }
 
     // Escape user search text before creating regex
     // escapeRegex() function escapes regular-expression metacharacters so that user-entered text is interpreted literally.
@@ -181,7 +179,7 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
           className: {
             $trim: {
               // Removes whitespace from the beginning and end of the combined string.
-              input: {
+              input: { // We use input because MongoDB's $trim operator requires us to specify which string it should remove whitespace from.
                 $concat: [
                   // $concat joins strings together.
                   { $ifNull: ["$classInfo.name", ""] }, // Use $classInfo.name if it is not null or missing. Otherwise, use an empty string.
@@ -390,6 +388,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     // starting a session does not automatically make every database operation part of that session.
     // You generally need to pass the session to database operations explicitly.
     // The .session(session) call associates this database operation with the current session.
+    // transaction ke andar kiye gaye reads ko bhi usi session se associate karna, taaki woh transaction ke context mein execute hon.
     const klass = await Class.findById(others.classId).session(session)
     if (!klass) {
       await session.abortTransaction()
@@ -431,7 +430,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
         await parent.save({ session })
 
-        const pSeq = await nextSeq("parentUser")
+        const pSeq = await nextSeq("parentUser", session)
         const pUsername = `parent${pSeq}`
         const pPassword = parentPassword || "parent123"
 
@@ -464,7 +463,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     }
 
     // Student login account
-    const sSeq = await nextSeq("studentUser")
+    const sSeq = await nextSeq("studentUser", session)
     const sUsername = `student${sSeq}`
     const sPassword = loginPassword || "student123"
 
@@ -598,6 +597,12 @@ router.get("/:id/fees", async (req, res, next) => {
       return res.status(400).json({ error: "Invalid student ID format" })
     }
 
+    const student = await Student.findById(req.params.id)
+
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" })
+    }
+
     const receipts = await FeeReceipt.find({
       studentId: req.params.id,
     }).sort({
@@ -605,7 +610,6 @@ router.get("/:id/fees", async (req, res, next) => {
     })
 
     const structures = await FeeStructure.find()
-    const student = await Student.findById(req.params.id)
 
     return res.json({
       receipts,
@@ -667,6 +671,7 @@ router.get("/:id/attendance", async (req, res, next) => {
               as: "record", // This defines a variable named record that represents each individual element of the array while MongoDB evaluates the filter condition.
               cond: {
                 // The cond property defines the condition an array element must satisfy to remain in the filtered array.
+                // record is a variable defined inside the $filter stage MongoDB uses $$ to access variables.
                 $eq: ["$$record.studentId", new mongoose.Types.ObjectId(id)], // "$$record.studentId" refers to the studentId property of the current array element represented by the record variable.
               },
             },
@@ -676,7 +681,7 @@ router.get("/:id/attendance", async (req, res, next) => {
 
       // Convert the single matching record into an object.
       // "$records.status" means Retrieves the status values from the records array. here records is array of objects inside of that object status property is present so $records.status gives array like ["present", "absent", "late"] this.
-      // $arrayElemAt retrieves an element from an array at a specified index.$arrayElemAt: ["$records.status", 0] Here, it retrieves the first element (index 0) from the array of attendance statuses.
+      // $arrayElemAt retrieves an element from an array at a specified index. $arrayElemAt: ["$records.status", 0] Here, it retrieves the first element (index 0) from the array of attendance statuses.
       {
         $project: {
           date: 1,
@@ -856,13 +861,18 @@ router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
 
     await Student.findByIdAndDelete(req.params.id, { session })
 
-    await User.findOneAndDelete(
+    const student = await User.findOneAndDelete(
       {
         role: "student",
         refId: req.params.id,
       },
       { session },
     )
+
+    if (!student) {
+      await session.abortTransaction()
+      return res.status(400).json({ error: "Student not found" })
+    }
 
     await session.commitTransaction()
 
