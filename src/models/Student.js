@@ -100,3 +100,5 @@ studentSchema.index({ classId: 1 })
 studentSchema.index({ status: 1 })
 
 export const Student = mongoose.model("Student", studentSchema, "students")
+
+// Index Checked

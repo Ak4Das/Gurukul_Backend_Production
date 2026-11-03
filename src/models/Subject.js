@@ -41,6 +41,12 @@ const subjectSchema = new mongoose.Schema(
     passingMarks: {
       type: Number,
       required: true,
+      validate: {
+        validator(value) {
+          return value <= this.maxMarks
+        },
+        message: "Passing marks cannot exceed maximum marks",
+      },
     },
   },
   {

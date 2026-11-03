@@ -21,4 +21,17 @@ const classSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
+classSchema.index(
+  {
+    name: 1,
+    section: 1,
+    academicYear: 1,
+  },
+  {
+    unique: true,
+  },
+)
+
 export const Class = mongoose.model("Class", classSchema, "classes")
+
+// Index Checked

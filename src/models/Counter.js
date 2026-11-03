@@ -2,14 +2,11 @@ import mongoose from "mongoose"
 
 const counterSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true },
+    key: { type: String, required: true, unique: true },
     value: { type: Number, default: 0 },
   },
   { timestamps: true },
 )
-
-// nextSeq() searches by key and each sequence must be unique
-counterSchema.index({ key: 1 }, { unique: true })
 
 export const Counter = mongoose.model("Counter", counterSchema, "counters")
 

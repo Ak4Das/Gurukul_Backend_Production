@@ -592,261 +592,277 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 })
 
 //! GET /students/:id/fees - Fee summary
-router.get("/:id/fees", async (req, res, next) => {
-  try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid student ID format" })
+router.get(
+  "/:id/fees",
+  allowRoles(...STAFF_TEACHER),
+  async (req, res, next) => {
+    try {
+      if (!isValidObjectId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid student ID format" })
+      }
+
+      const student = await Student.findById(req.params.id)
+
+      if (!student) {
+        return res.status(404).json({ error: "Student not found" })
+      }
+
+      const receipts = await FeeReceipt.find({
+        studentId: req.params.id,
+      }).sort({
+        date: -1,
+      })
+
+      const structures = await FeeStructure.find()
+
+      return res.json({
+        receipts,
+        structures,
+        student,
+      })
+    } catch (err) {
+      return next(err)
     }
-
-    const student = await Student.findById(req.params.id)
-
-    if (!student) {
-      return res.status(404).json({ error: "Student not found" })
-    }
-
-    const receipts = await FeeReceipt.find({
-      studentId: req.params.id,
-    }).sort({
-      date: -1,
-    })
-
-    const structures = await FeeStructure.find()
-
-    return res.json({
-      receipts,
-      structures,
-      student,
-    })
-  } catch (err) {
-    return next(err)
-  }
-})
+  },
+)
 
 //! GET /students/:id/attendance - Attendance summary
-router.get("/:id/attendance", async (req, res, next) => {
-  try {
-    const { id } = req.params
-    const { from, to } = req.query
+router.get(
+  "/:id/attendance",
+  allowRoles(...STAFF_TEACHER),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params
+      const { from, to } = req.query
 
-    if (!isValidObjectId(id)) {
-      return res.status(400).json({
-        error: "Invalid student ID format",
-      })
-    }
-
-    // Build the date filter.
-    const match = {}
-
-    if (from || to) {
-      match.date = {}
-
-      if (from) {
-        match.date.$gte = from
+      if (!isValidObjectId(id)) {
+        return res.status(400).json({
+          error: "Invalid student ID format",
+        })
       }
 
-      if (to) {
-        match.date.$lte = to
-      }
-    }
+      // Build the date filter.
+      const match = {}
 
-    // Find only attendance documents containing this student.
-    const pipeline = [
-      {
-        $match: {
-          ...match,
-          "records.studentId": new mongoose.Types.ObjectId(id),
+      if (from || to) {
+        match.date = {}
+
+        if (from) {
+          match.date.$gte = from
+        }
+
+        if (to) {
+          match.date.$lte = to
+        }
+      }
+
+      // Find only attendance documents containing this student.
+      const pipeline = [
+        {
+          $match: {
+            ...match,
+            "records.studentId": new mongoose.Types.ObjectId(id),
+          },
         },
-      },
 
-      // Extract only the requested student's attendance record.
-      // In MongoDB aggregation expressions, a single $ before a field name refers to that field's value.
-      {
-        $project: {
-          _id: 0,
-          date: 1,
-          classId: 1,
-          records: {
-            // Creates a new output field called records.
-            $filter: {
-              input: "$records", // This tells MongoDB which array to filter.
-              as: "record", // This defines a variable named record that represents each individual element of the array while MongoDB evaluates the filter condition.
-              cond: {
-                // The cond property defines the condition an array element must satisfy to remain in the filtered array.
-                // record is a variable defined inside the $filter stage MongoDB uses $$ to access variables.
-                $eq: ["$$record.studentId", new mongoose.Types.ObjectId(id)], // "$$record.studentId" refers to the studentId property of the current array element represented by the record variable.
+        // Extract only the requested student's attendance record.
+        // In MongoDB aggregation expressions, a single $ before a field name refers to that field's value.
+        {
+          $project: {
+            _id: 0,
+            date: 1,
+            classId: 1,
+            records: {
+              // Creates a new output field called records.
+              $filter: {
+                input: "$records", // This tells MongoDB which array to filter.
+                as: "record", // This defines a variable named record that represents each individual element of the array while MongoDB evaluates the filter condition.
+                cond: {
+                  // The cond property defines the condition an array element must satisfy to remain in the filtered array.
+                  // record is a variable defined inside the $filter stage MongoDB uses $$ to access variables.
+                  $eq: ["$$record.studentId", new mongoose.Types.ObjectId(id)], // "$$record.studentId" refers to the studentId property of the current array element represented by the record variable.
+                },
               },
             },
           },
         },
-      },
 
-      // Convert the single matching record into an object.
-      // "$records.status" means Retrieves the status values from the records array. here records is array of objects inside of that object status property is present so $records.status gives array like ["present", "absent", "late"] this.
-      // $arrayElemAt retrieves an element from an array at a specified index. $arrayElemAt: ["$records.status", 0] Here, it retrieves the first element (index 0) from the array of attendance statuses.
-      {
-        $project: {
-          date: 1,
-          classId: 1,
-          status: {
-            // Creates a new output field called status.
-            $arrayElemAt: ["$records.status", 0],
+        // Convert the single matching record into an object.
+        // "$records.status" means Retrieves the status values from the records array. here records is array of objects inside of that object status property is present so $records.status gives array like ["present", "absent", "late"] this.
+        // $arrayElemAt retrieves an element from an array at a specified index. $arrayElemAt: ["$records.status", 0] Here, it retrieves the first element (index 0) from the array of attendance statuses.
+        {
+          $project: {
+            date: 1,
+            classId: 1,
+            status: {
+              // Creates a new output field called status.
+              $arrayElemAt: ["$records.status", 0],
+            },
           },
         },
-      },
 
-      // Return the newest attendance dates first.
-      {
-        $sort: {
-          date: -1,
+        // Return the newest attendance dates first.
+        {
+          $sort: {
+            date: -1,
+          },
         },
-      },
-    ]
+      ]
 
-    const records = await Attendance.aggregate(pipeline)
+      const records = await Attendance.aggregate(pipeline)
 
-    // Calculate the attendance summary.
-    const summary = {}
+      // Calculate the attendance summary.
+      const summary = {}
 
-    for (const record of records) {
-      summary[record.status] = (summary[record.status] || 0) + 1
+      for (const record of records) {
+        summary[record.status] = (summary[record.status] || 0) + 1
+      }
+
+      return res.json({
+        records,
+        summary,
+      })
+    } catch (err) {
+      return next(err)
     }
-
-    return res.json({
-      records,
-      summary,
-    })
-  } catch (err) {
-    return next(err)
-  }
-})
+  },
+)
 
 //! GET /students/:id/results - Academic marks
-router.get("/:id/results", async (req, res, next) => {
-  try {
-    const { id } = req.params
+router.get(
+  "/:id/results",
+  allowRoles(...STAFF_TEACHER),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params
 
-    if (!isValidObjectId(id)) {
-      return res.status(400).json({
-        error: "Invalid student ID format",
+      if (!isValidObjectId(id)) {
+        return res.status(400).json({
+          error: "Invalid student ID format",
+        })
+      }
+
+      // Find the requested student.
+      const student = await Student.findById(id).lean()
+
+      if (!student) {
+        return res.status(404).json({
+          error: "Student not found",
+        })
+      }
+
+      // Students and parents can see only published results.
+      const visible = req.user.role === "student" || req.user.role === "parent"
+
+      // Fetch only marks belonging to the student's class that contain an entry for this student.
+      const markQuery = {
+        classId: student.classId,
+        "entries.studentId": student._id,
+      }
+
+      if (visible) {
+        markQuery.status = "published"
+      }
+
+      const marks = await Mark.find(markQuery).lean()
+
+      // If the student has no matching marks, avoid querying the Exam and Subject collections.
+      if (marks.length === 0) {
+        return res.json({
+          student,
+          results: [],
+        })
+      }
+
+      // Collect unique exam and subject IDs from the matching marks.
+      const examIds = [
+        ...new Set(marks.map((mark) => mark.examId.toString())),
+      ].map((examId) => new mongoose.Types.ObjectId(examId))
+
+      const subjectIds = [
+        ...new Set(marks.map((mark) => mark.subjectId.toString())),
+      ].map((subjectId) => new mongoose.Types.ObjectId(subjectId))
+
+      // Fetch only the required exams and their names.
+      const exams = await Exam.find({
+        _id: { $in: examIds },
       })
-    }
+        .select("name")
+        .lean()
 
-    // Find the requested student.
-    const student = await Student.findById(id).lean()
-
-    if (!student) {
-      return res.status(404).json({
-        error: "Student not found",
+      // Fetch only the required subjects and their relevant fields.
+      const subjects = await Subject.find({
+        _id: { $in: subjectIds },
       })
-    }
+        .select("name maxMarks")
+        .lean()
 
-    // Students and parents can see only published results.
-    const visible = req.user.role === "student" || req.user.role === "parent"
+      // Build lookup maps for efficient access.
+      const examMap = new Map(exams.map((exam) => [exam._id.toString(), exam]))
 
-    // Fetch only marks belonging to the student's class that contain an entry for this student.
-    const markQuery = {
-      classId: student.classId,
-      "entries.studentId": student._id,
-    }
-
-    if (visible) {
-      markQuery.status = "published"
-    }
-
-    const marks = await Mark.find(markQuery).lean()
-
-    // If the student has no matching marks, avoid querying the Exam and Subject collections.
-    if (marks.length === 0) {
-      return res.json({
-        student,
-        results: [],
-      })
-    }
-
-    // Collect unique exam and subject IDs from the matching marks.
-    const examIds = [
-      ...new Set(marks.map((mark) => mark.examId.toString())),
-    ].map((examId) => new mongoose.Types.ObjectId(examId))
-
-    const subjectIds = [
-      ...new Set(marks.map((mark) => mark.subjectId.toString())),
-    ].map((subjectId) => new mongoose.Types.ObjectId(subjectId))
-
-    // Fetch only the required exams and their names.
-    const exams = await Exam.find({
-      _id: { $in: examIds },
-    })
-      .select("name")
-      .lean()
-
-    // Fetch only the required subjects and their relevant fields.
-    const subjects = await Subject.find({
-      _id: { $in: subjectIds },
-    })
-      .select("name maxMarks")
-      .lean()
-
-    // Build lookup maps for efficient access.
-    const examMap = new Map(exams.map((exam) => [exam._id.toString(), exam]))
-
-    const subjectMap = new Map(
-      subjects.map((subject) => [subject._id.toString(), subject]),
-    )
-
-    const results = []
-
-    for (const mark of marks) {
-      // Find this student's entry in the mark document.
-      const entry = (mark.entries || []).find(
-        (item) => item.studentId?.toString() === student._id.toString(),
+      const subjectMap = new Map(
+        subjects.map((subject) => [subject._id.toString(), subject]),
       )
 
-      if (!entry) continue
+      const results = []
 
-      const exam = examMap.get(mark.examId?.toString())
-      const subject = subjectMap.get(mark.subjectId?.toString())
+      for (const mark of marks) {
+        // Find this student's entry in the mark document.
+        const entry = (mark.entries || []).find(
+          (item) => item.studentId?.toString() === student._id.toString(),
+        )
 
-      results.push({
-        examId: mark.examId,
-        examName: exam?.name || "?",
-        subject: subject?.name || "?",
-        maxMarks: subject?.maxMarks || 100,
-        marks: entry.marks,
-        grade: entry.grade,
-        status: mark.status,
+        if (!entry) continue
+
+        const exam = examMap.get(mark.examId?.toString())
+        const subject = subjectMap.get(mark.subjectId?.toString())
+
+        results.push({
+          examId: mark.examId,
+          examName: exam?.name || "?",
+          subject: subject?.name || "?",
+          maxMarks: subject?.maxMarks || 100,
+          marks: entry.marks,
+          grade: entry.grade,
+          status: mark.status,
+        })
+      }
+
+      return res.json({
+        student,
+        results,
       })
+    } catch (err) {
+      return next(err)
     }
-
-    return res.json({
-      student,
-      results,
-    })
-  } catch (err) {
-    return next(err)
-  }
-})
+  },
+)
 
 //! GET /students/:id/parents - Linked parents
-router.get("/:id/parents", async (req, res, next) => {
-  try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid student ID format" })
+router.get(
+  "/:id/parents",
+  allowRoles(...STAFF_TEACHER),
+  async (req, res, next) => {
+    try {
+      if (!isValidObjectId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid student ID format" })
+      }
+
+      const student = await Student.findById(req.params.id)
+      if (!student) {
+        return res.status(404).json({ error: "Student not found" })
+      }
+
+      const parents = await Parent.find({
+        _id: { $in: student.parentIds || [] },
+      })
+
+      return res.json(parents)
+    } catch (err) {
+      return next(err)
     }
-
-    const student = await Student.findById(req.params.id)
-    if (!student) {
-      return res.status(404).json({ error: "Student not found" })
-    }
-
-    const parents = await Parent.find({
-      _id: { $in: student.parentIds || [] },
-    })
-
-    return res.json(parents)
-  } catch (err) {
-    return next(err)
-  }
-})
+  },
+)
 
 //! DELETE /students/:id - Delete student
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
