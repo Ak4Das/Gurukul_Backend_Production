@@ -132,7 +132,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     const updated = await Class.findByIdAndUpdate(
       req.params.id,
       { $set: req.body },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     ).lean()
 
     if (!updated) {

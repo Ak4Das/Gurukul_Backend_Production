@@ -60,7 +60,7 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
     const doc = await Timetable.findOneAndUpdate(
       { classId: req.params.classId },
       { $set: payload },
-      { new: true, upsert: true, runValidators: true },
+      { returnDocument: "after", upsert: true, runValidators: true },
     ).lean()
 
     return res.json(doc)

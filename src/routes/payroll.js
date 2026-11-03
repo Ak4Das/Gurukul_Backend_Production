@@ -175,7 +175,7 @@ router.put("/:id", allowRoles("admin", "clerk"), async (req, res, next) => {
       req.params.id,
       updateData,
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     ).lean()

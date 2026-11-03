@@ -78,7 +78,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     delete b._id
 
     const updated = await InventoryItem.findByIdAndUpdate(req.params.id, b, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }).lean()
 

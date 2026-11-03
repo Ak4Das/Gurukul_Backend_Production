@@ -179,7 +179,8 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
           className: {
             $trim: {
               // Removes whitespace from the beginning and end of the combined string.
-              input: { // We use input because MongoDB's $trim operator requires us to specify which string it should remove whitespace from.
+              input: {
+                // We use input because MongoDB's $trim operator requires us to specify which string it should remove whitespace from.
                 $concat: [
                   // $concat joins strings together.
                   { $ifNull: ["$classInfo.name", ""] }, // Use $classInfo.name if it is not null or missing. Otherwise, use an empty string.
@@ -550,7 +551,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       req.params.id,
       studentData,
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     ).session(session)
@@ -571,7 +572,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
         joined: b.admissionDate,
       },
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     ).session(session)

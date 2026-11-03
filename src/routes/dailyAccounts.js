@@ -167,7 +167,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     if (body.category === "Supplies") {
       unset.assetName = ""
       unset.assetId = ""
-    }else {
+    } else {
       unset.itemName = ""
       unset.itemId = ""
       unset.assetName = ""
@@ -177,7 +177,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     const updated = await DailyAccount.findByIdAndUpdate(
       req.params.id,
       { $set: body, $unset: unset },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     ).lean()
 
     if (!updated) {

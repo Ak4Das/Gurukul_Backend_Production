@@ -104,7 +104,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     const updated = await Notice.findByIdAndUpdate(
       req.params.id,
       { $set: body },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     ).lean()
 
     if (!updated) {

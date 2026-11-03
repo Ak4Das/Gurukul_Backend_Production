@@ -78,7 +78,7 @@ router.post("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
     const doc = await Attendance.findOneAndUpdate(
       { classId, date },
       { records: clean, markedBy },
-      { new: true, upsert: true, runValidators: true },
+      { returnDocument: "after", upsert: true, runValidators: true },
     )
 
     return res.json(doc)

@@ -92,7 +92,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     delete b._id
 
     const updated = await Exam.findByIdAndUpdate(req.params.id, b, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }).lean()
 
@@ -238,7 +238,7 @@ router.post(
       const doc = await Mark.findOneAndUpdate(
         { examId: req.params.examId, classId, subjectId },
         payload,
-        { upsert: true, new: true, runValidators: true },
+        { upsert: true, returnDocument: "after", runValidators: true },
       ).lean()
 
       return res.json(doc)
@@ -259,9 +259,7 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
 
     session.startTransaction()
 
-    const exam = await Exam.findById(req.params.examId)
-      .session(session)
-      .lean()
+    const exam = await Exam.findById(req.params.examId).session(session).lean()
 
     if (!exam) {
       await session.abortTransaction()
@@ -309,15 +307,13 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
       marks
         .filter((mark) => mark.status === "submitted")
         .map(
-          (mark) =>
-            `${mark.classId.toString()}_${mark.subjectId.toString()}`,
+          (mark) => `${mark.classId.toString()}_${mark.subjectId.toString()}`,
         ),
     )
 
     // Find expected papers that are not submitted
     const pendingSheets = expectedSheets.filter(
-      (sheet) =>
-        !submittedSheets.has(`${sheet.classId}_${sheet.subjectId}`),
+      (sheet) => !submittedSheets.has(`${sheet.classId}_${sheet.subjectId}`),
     )
 
     // Do not publish until every expected paper is submitted

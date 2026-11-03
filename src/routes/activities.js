@@ -100,7 +100,7 @@ router.put("/:id", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
     const updated = await Activity.findByIdAndUpdate(
       req.params.id,
       { $set: body },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     ).lean()
     if (!updated) return res.status(404).json({ error: "Activity not found" })
     return res.json(updated)

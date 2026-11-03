@@ -31,7 +31,7 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
 
       query.role = { $in: roles }
     }
-    
+
     if (req.query.status) {
       query.status = String(req.query.status)
     }
@@ -276,7 +276,7 @@ router.post("/:id/status", allowRoles("admin"), async (req, res, next) => {
     const updatedUser = await User.findByIdAndUpdate(
       req.params.id,
       { status: String(status) },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     )
 
     if (!updatedUser) {

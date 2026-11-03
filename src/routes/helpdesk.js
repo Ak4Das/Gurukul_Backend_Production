@@ -145,7 +145,7 @@ router.put(
         req.params.id,
         { $set: update },
         {
-          new: true,
+          returnDocument: "after",
           runValidators: true,
         },
       ).lean()

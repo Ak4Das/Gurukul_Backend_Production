@@ -96,7 +96,7 @@ router.put("/me", authRequired, async (req, res, next) => {
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { fullName, email, mobile, gender, address, avatarColor },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     )
 
     if (!user) {
