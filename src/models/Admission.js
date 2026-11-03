@@ -81,7 +81,7 @@ const admissionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["registered", "admitted", "rejected", "pending"],
+      enum: ["registered", "admitted", "rejected"],
       default: "registered",
     },
     rejectReason: {

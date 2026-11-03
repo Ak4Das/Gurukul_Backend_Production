@@ -192,8 +192,9 @@ router.get("/:id", async (req, res, next) => {
 //! POST /fees - Record a fee payment
 // Here i use a MongoDB transaction/session so both operations succeed or both roll back.
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
-  const session = await mongoose.startSession()
   try {
+    const session = await mongoose.startSession()
+
     const b = req.body
 
     const {
@@ -370,9 +371,9 @@ router.post(
   "/:id/refund",
   allowRoles("admin", "clerk"),
   async (req, res, next) => {
-    const session = await mongoose.startSession()
-
     try {
+      const session = await mongoose.startSession()
+
       if (!isValidObjectId(req.params.id)) {
         return res.status(400).json({
           error: "Invalid receipt ID format",

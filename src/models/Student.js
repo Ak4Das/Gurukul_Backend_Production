@@ -62,6 +62,7 @@ const studentSchema = new mongoose.Schema(
     },
     transportRequired: {
       type: String,
+      enum: ["yes", "no"],
       default: "no",
     },
     transportRoute: {

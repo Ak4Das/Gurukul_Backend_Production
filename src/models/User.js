@@ -59,6 +59,9 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
+    lastLogin: {
+      type: String,
+    },
   },
   {
     timestamps: true,

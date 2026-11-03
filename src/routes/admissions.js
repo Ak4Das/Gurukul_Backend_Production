@@ -21,24 +21,21 @@ function isValidObjectId(id) {
 //! GET /admissions - List admission applications
 router.get("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 100)
-
     const filters = {}
 
     if (req.query.status) {
       filters.status = String(req.query.status)
     }
 
+    // Sirf query object create hota hain query execute nehi hota
     let query = Admission.find(filters)
       .sort({
         createdAt: -1,
       })
       .lean()
 
-    if (limit > 0) {
-      query = query.limit(limit)
-    }
-
+    // await query ko trigger karta hain fir query execute hota hain
+    // await, .then() aur .exec() query execution ke common tareeke hain.
     const admissions = await query
 
     return res.json(admissions)
@@ -51,42 +48,37 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   const b = req.body
 
-  // Validate before starting transaction
-  if (!b.firstName || !b.classAppliedFor || !b.academicYear) {
-    return res.status(400).json({
-      error: "Applicant name, class applied for and academic year are required",
-    })
-  }
-
-  const session = await mongoose.startSession()
-
   try {
-    let createdAdmission
+    const session = await mongoose.startSession()
 
-    await session.withTransaction(async () => {
-      const seq = await nextSeq("registration", session)
+    session.startTransaction()
 
-      const regNo = `REG-${new Date().getFullYear()}-${String(seq).padStart(
-        5,
-        "0",
-      )}`
+    const seq = await nextSeq("registration", session)
 
-      const [doc] = await Admission.create(
-        [
-          {
-            regNo,
-            status: "registered",
-            ...b,
-          },
-        ],
-        { session },
-      )
+    const regNo = `REG-${new Date().getFullYear()}-${String(seq).padStart(
+      5,
+      "0",
+    )}`
 
-      createdAdmission = doc
-    })
+    const [doc] = await Admission.create(
+      [
+        {
+          ...b,
+          regNo,
+          status: "registered",
+        },
+      ],
+      { session },
+    )
 
-    return res.status(201).json(createdAdmission)
+    await session.commitTransaction()
+
+    return res.status(201).json(doc)
   } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction()
+    }
+
     return next(err)
   } finally {
     await session.endSession()
@@ -182,210 +174,172 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
     })
   }
 
-  const session = await mongoose.startSession()
-
   try {
-    let result
+    const session = await mongoose.startSession()
 
-    await session.withTransaction(async () => {
-      // --------------------------------------------------
-      // 1. Find admission inside transaction
-      // --------------------------------------------------
+    // Starts a transaction.
+    session.startTransaction()
 
-      const app = await Admission.findById(id).session(session)
+    // Find admission
+    const app = await Admission.findById(id).session(session)
 
-      if (!app) {
-        const error = new Error("Application not found")
-        error.statusCode = 404
-        throw error
-      }
+    if (!app) {
+      await session.abortTransaction()
+      return res.status(404).json({ error: "Application not found" })
+    }
 
-      if (app.status === "admitted") {
-        const error = new Error("Applicant is already admitted")
-        error.statusCode = 400
-        throw error
-      }
+    if (app.status === "admitted") {
+      await session.abortTransaction()
+      return res.status(400).json({ error: "Applicant is already admitted" })
+    }
 
-      // --------------------------------------------------
-      // 2. Find class inside transaction
-      // --------------------------------------------------
+    // Find class
+    const klass = await Class.findById(classId).session(session)
 
-      const klass = await Class.findById(classId).session(session)
+    if (!klass) {
+      await session.abortTransaction()
+      return res.status(400).json({ error: "Please select a valid class" })
+    }
 
-      if (!klass) {
-        const error = new Error("Please select a valid class")
-        error.statusCode = 400
-        throw error
-      }
+    // Generate roll number
+    const rollNo = await nextSeq(
+      `${klass.name}${klass.section} - roll`,
+      session,
+    )
 
-      // --------------------------------------------------
-      // 3. Generate roll number inside transaction
-      // --------------------------------------------------
-      const rollNo = await nextSeq(
-        `${klass.name}${klass.section} - roll`,
-        session,
-      )
-      // --------------------------------------------------
-      // 4. Generate admission number inside transaction
-      // --------------------------------------------------
-      const year = new Date().getFullYear()
-      const seq = await nextSeq("admissionNo", session)
-      const admNo = `${year}-${String(seq).padStart(8, "0")}`
-      const credentials = {}
-      // --------------------------------------------------
-      // 5. Parent
-      // --------------------------------------------------
-      let parent = null
+    // Generate admission number
+    const year = new Date().getFullYear()
+    const seq = await nextSeq("admissionNo", session)
+    const admNo = `${year}-${String(seq).padStart(8, "0")}`
 
-      if (app.parentMobile) {
-        parent = await Parent.findOne({
-          mobile: app.parentMobile,
-        }).session(session)
-      }
+    // Stores parent and student credentials (username and password)
+    const credentials = {}
 
-      if (!parent) {
-        const [createdParent] = await Parent.create(
-          [
-            {
-              name: app.parentName || "Guardian",
-              relation: app.parentRelation || "Guardian",
-              mobile: app.parentMobile || "",
-              email: app.parentEmail || "",
-              occupation: app.parentOccupation || "",
-              address: app.address || "",
-              status: "active",
-            },
-          ],
-          { session },
-        )
+    // Parent
+    let parent = null
 
-        parent = createdParent
+    if (app.parentMobile) {
+      parent = await Parent.findOne({
+        mobile: app.parentMobile,
+      }).session(session)
+    }
 
-        // --------------------------------------------------
-        // 6. Parent login
-        // --------------------------------------------------
-        const pSeq = await nextSeq("parentUser", session)
-        const pUsername = `parent${pSeq}`
-        const pPassword = parentPassword || "parent123"
+    if (!parent) {
+      parent = new Parent({
+        name: app.parentName || "Guardian",
+        relation: app.parentRelation || "Guardian",
+        mobile: app.parentMobile || "",
+        email: app.parentEmail || "",
+        occupation: app.parentOccupation || "",
+        address: app.address || "",
+        status: "active",
+      })
 
-        await User.create(
-          [
-            {
-              username: pUsername,
-              fullName: parent.name,
-              role: "parent",
-              status: "active",
-              email: parent.email,
-              mobile: parent.mobile,
-              refId: parent._id,
-              passwordHash: pPassword,
-              // Password hashing handled by User model pre-save hook
-              address: app.address || "",
-              gender:
-                app.parentRelation === "Father"
-                  ? "Male"
-                  : app.parentRelation === "Mother"
-                    ? "Female"
-                    : null,
-            },
-          ],
-          { session },
-        )
+      await parent.save({ session })
 
-        credentials.parentUsername = pUsername
-        credentials.parentPassword = pPassword
-      }
+      const pSeq = await nextSeq("parentUser", session)
+      const pUsername = `parent${pSeq}`
+      const pPassword = parentPassword || "parent123"
 
-      // --------------------------------------------------
-      // 7. Student record
-      // --------------------------------------------------
+      const parentUser = new User({
+        username: pUsername,
+        fullName: parent.name,
+        role: "parent",
+        status: "active",
+        email: parent.email,
+        mobile: parent.mobile,
+        refId: parent._id,
+        passwordHash: pPassword,
+        // Password hashing handled by User model pre-save hook
+        address: app.address || "",
+        gender:
+          app.parentRelation === "Father"
+            ? "Male"
+            : app.parentRelation === "Mother"
+              ? "Female"
+              : null,
+      })
 
-      const student = await Student.create(
-        [
-          {
-            admissionNo: admNo,
-            firstName: app.firstName,
-            lastName: app.lastName || "",
-            gender: app.gender || "",
-            dob: app.dob || "",
-            nationality: app.nationality || "",
-            curriculum: app.curriculum || "",
-            englishLevel: app.englishLevel || "",
-            house: app.house || "",
-            allergies: app.allergies || "",
-            medicalNotes: app.medicalNotes || "",
-            languages: app.languages || "",
-            address: app.address || "",
-            classId,
-            rollNo: rollNo || "",
-            admissionDate:
-              admissionDate || new Date().toISOString().slice(0, 10),
-            transportRequired,
-            transportRoute: transportRoute || "",
-            parentIds: [parent._id],
-            academicYear: app.academicYear || klass.academicYear,
-            status: "active",
-          },
-        ],
-        { session },
-      )
+      await parentUser.save({ session })
 
-      const createdStudent = student[0]
+      credentials.parentUsername = pUsername
+      credentials.parentPassword = pPassword
+    }
 
-      // --------------------------------------------------
-      // 8. Student login
-      // --------------------------------------------------
-      const sSeq = await nextSeq("studentUser", session)
-      const sUsername = `student${sSeq}`
-      const sPassword = studentPassword || "student123"
-
-      await User.create(
-        [
-          {
-            username: sUsername,
-            fullName: `${app.firstName} ${app.lastName || ""}`.trim(),
-            role: "student",
-            status: "active",
-            refId: createdStudent._id,
-            passwordHash: sPassword,
-            // Password hashing handled by User model pre-save hook
-            gender: app.gender,
-            address: app.address,
-            dob: app.dob,
-            joined: admissionDate || new Date().toISOString().slice(0, 10),
-          },
-        ],
-        { session },
-      )
-
-      credentials.studentUsername = sUsername
-      credentials.studentPassword = sPassword
-
-      // --------------------------------------------------
-      // 9. Update admission application
-      // --------------------------------------------------
-
-      app.status = "admitted"
-      app.studentId = createdStudent._id
-      app.admissionNo = admNo
-      app.enrolledClassId = classId
-
-      await app.save({ session })
-
-      // --------------------------------------------------
-      // 10. Store result
-      // --------------------------------------------------
-
-      result = {
-        admission: app,
-        student: createdStudent,
-        credentials,
-      }
+    // Student record
+    const createdStudent = new Student({
+      admissionNo: admNo,
+      firstName: app.firstName,
+      lastName: app.lastName || "",
+      gender: app.gender || "",
+      dob: app.dob || "",
+      nationality: app.nationality || "",
+      curriculum: app.curriculum || "",
+      englishLevel: app.englishLevel || "",
+      house: app.house || "",
+      allergies: app.allergies || "",
+      medicalNotes: app.medicalNotes || "",
+      languages: app.languages || "",
+      address: app.address || "",
+      classId,
+      rollNo: rollNo || "",
+      admissionDate: admissionDate || new Date().toISOString().slice(0, 10),
+      transportRequired,
+      transportRoute: transportRoute || "",
+      parentIds: [parent._id],
+      academicYear: app.academicYear || klass.academicYear,
+      status: "active",
     })
 
+    await createdStudent.save({ session })
+
+    const sSeq = await nextSeq("studentUser", session)
+    const sUsername = `student${sSeq}`
+    const sPassword = studentPassword || "student123"
+
+    const studentUser = new User({
+      username: sUsername,
+      fullName: `${app.firstName} ${app.lastName || ""}`.trim(),
+      role: "student",
+      status: "active",
+      refId: createdStudent._id,
+      passwordHash: sPassword,
+      // Password hashing handled by User model pre-save hook
+      gender: app.gender,
+      address: app.address,
+      dob: app.dob,
+      joined: admissionDate || new Date().toISOString().slice(0, 10),
+    })
+
+    await studentUser.save({ session })
+
+    credentials.studentUsername = sUsername
+    credentials.studentPassword = sPassword
+
+    // Update admission application
+    app.status = "admitted"
+    app.studentId = createdStudent._id
+    app.admissionNo = admNo
+    app.enrolledClassId = classId
+
+    await app.save({ session })
+
+    // Commits the transaction, making its changes permanent.
+    await session.commitTransaction()
+
     // Transaction successfully committed
-    return res.json(result)
+    return res.json({
+      admission: app,
+      student: createdStudent,
+      credentials,
+    })
   } catch (err) {
+    // session.inTransaction() is a Mongoose method that checks whether the current MongoDB session has an active transaction.
+    if (session.inTransaction()) {
+      // Aborts the transaction, discarding its uncommitted database changes.
+      await session.abortTransaction()
+    }
+
     return next(err)
   } finally {
     await session.endSession()

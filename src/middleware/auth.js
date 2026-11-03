@@ -16,6 +16,7 @@ export function authRequired(req, res, next) {
       .json({ error: "Access Denied: Token not present in header." })
   }
   try {
+    // if jwt.verify fails then it throws error
     req.user = jwt.verify(token, process.env.JWT_SECRET)
     next()
   } catch {

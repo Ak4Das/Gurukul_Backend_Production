@@ -91,11 +91,11 @@ router.put("/me", authRequired, async (req, res, next) => {
       return res.status(400).json({ error: "Invalid user ID format" })
     }
 
-    const { fullName, email, mobile, gender, address, avatarColor } = req.body
+    const { fullName, email, mobile, gender, address } = req.body
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { fullName, email, mobile, gender, address, avatarColor },
+      { fullName, email, mobile, gender, address },
       { returnDocument: "after", runValidators: true },
     )
 

@@ -59,9 +59,9 @@ router.get("/", async (req, res, next) => {
 
 //! POST /payroll - Generate new salary slip
 router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     session.startTransaction()
 
     const b = req.body
@@ -191,9 +191,9 @@ router.post(
   "/:id/pay",
   allowRoles("admin", "clerk"),
   async (req, res, next) => {
-    const session = await mongoose.startSession()
-
     try {
+      const session = await mongoose.startSession()
+
       session.startTransaction()
 
       if (!isValidObjectId(req.params.id)) {
@@ -266,9 +266,9 @@ router.post(
 
 //! DELETE /payroll/:id - Remove salary slip
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     session.startTransaction()
 
     if (!isValidObjectId(req.params.id)) {

@@ -355,14 +355,14 @@ router.get("/:id", async (req, res, next) => {
 
 //! POST /students - Create student & credentials
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
-  // This creates a MongoDB session.
-  // A session allows multiple database operations to participate in a single transaction.
-  // Suppose the student and parent are created successfully, but creating the student's login account fails.
-  // Without a transaction, some documents might remain in the database even though the complete operation failed.
-  // A transaction helps prevent this partial creation.
-  const session = await mongoose.startSession()
-
   try {
+    // This creates a MongoDB session.
+    // A session allows multiple database operations to participate in a single transaction.
+    // Suppose the student and parent are created successfully, but creating the student's login account fails.
+    // Without a transaction, some documents might remain in the database even though the complete operation failed.
+    // A transaction helps prevent this partial creation.
+    const session = await mongoose.startSession()
+
     // Starts a transaction.
     session.startTransaction()
 
@@ -505,9 +505,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! PUT /students/:id - Update student
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     session.startTransaction()
 
     if (!isValidObjectId(req.params.id)) {
@@ -866,9 +866,9 @@ router.get(
 
 //! DELETE /students/:id - Delete student
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     session.startTransaction()
 
     if (!isValidObjectId(req.params.id)) {

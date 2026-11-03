@@ -36,9 +36,9 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! POST /assets - Create new asset record
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     const b = req.body
 
     if (!b.name?.trim()) {
@@ -105,9 +105,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! PUT /assets/:id - Update asset details
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({
         error: "Invalid asset ID format",
@@ -233,9 +233,9 @@ router.post(
   "/:id/maintenance",
   allowRoles(...STAFF),
   async (req, res, next) => {
-    const session = await mongoose.startSession()
-
     try {
+      const session = await mongoose.startSession()
+
       if (!isValidObjectId(req.params.id)) {
         return res.status(400).json({
           error: "Invalid asset ID format",

@@ -108,9 +108,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
 //! DELETE /exams/:id - Remove exam and associated marks
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid exam ID" })
     }
@@ -250,9 +250,9 @@ router.post(
 
 //! POST /exams/:examId/publish - Publish results (Admin only)
 router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
-  const session = await mongoose.startSession()
-
   try {
+    const session = await mongoose.startSession()
+
     if (!isValidObjectId(req.params.examId)) {
       return res.status(400).json({ error: "Invalid exam ID" })
     }
