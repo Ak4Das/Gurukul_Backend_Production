@@ -9,6 +9,30 @@ import { authRequired, allowRoles, STAFF } from "../middleware/auth.js"
 const router = Router()
 router.use(authRequired)
 
+// Fields that clients are allowed to create or update.
+const WRITABLE_FIELDS = [
+  "name",
+  "section",
+  "academicYear",
+  "status",
+  "capacity",
+  "room",
+]
+
+// Extract only explicitly permitted fields.
+function pickFields(source, allowedFields) {
+  const result = {}
+
+  for (const field of allowedFields) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      result[field] = source[field]
+    }
+  }
+
+  return result
+}
+
+// Validate MongoDB ObjectId strings.
 function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id)
 }
@@ -16,49 +40,8 @@ function isValidObjectId(id) {
 //! GET /api/classes - List all classes
 router.get("/", async (req, res, next) => {
   try {
-    const query = {}
+    const classes = await Class.find({}).sort({ name: 1, section: 1 }).lean()
 
-    // Parse standard filter query params
-    for (const [key, value] of Object.entries(req.query)) {
-      if (["sort", "limit", "skip", "search", "searchFields"].includes(key))
-        continue
-      if (value !== undefined && value !== "") {
-        if (value === "true") {
-          query[key] = true
-        } else if (value === "false") {
-          query[key] = false
-        } else {
-          query[key] = value
-        }
-      }
-    }
-
-    // Regex Search across specified fields
-    if (req.query.search && req.query.searchFields) {
-      const searchTerm = String(req.query.search).trim()
-      const fields = String(req.query.searchFields)
-        .split(",")
-        .map((field) => field.trim())
-
-      if (searchTerm && fields.length > 0) {
-        query.$or = fields.map((field) => ({
-          [field]: { $regex: searchTerm, $options: "i" },
-        }))
-      }
-    }
-
-    // Build Mongoose query object
-    // Model.find() builds a Query. The query executes when Mongoose gets an execution trigger such as await, .then(), or .exec().
-    let execQuery = Class.find(query).sort({ name: 1, section: 1 })
-
-    if (req.query.skip) {
-      execQuery = execQuery.skip(Number(req.query.skip))
-    }
-    if (req.query.limit) {
-      execQuery = execQuery.limit(Number(req.query.limit))
-    }
-
-    const classes = await execQuery.lean()
     return res.json(classes)
   } catch (err) {
     return next(err)
@@ -69,12 +52,19 @@ router.get("/", async (req, res, next) => {
 router.get("/:id", async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid class ID format" })
+      return res.status(400).json({
+        error: "Invalid class ID format",
+      })
     }
+
     const item = await Class.findById(req.params.id).lean()
+
     if (!item) {
-      return res.status(404).json({ error: "Class not found" })
+      return res.status(404).json({
+        error: "Class not found",
+      })
     }
+
     return res.json(item)
   } catch (err) {
     return next(err)
@@ -84,9 +74,24 @@ router.get("/:id", async (req, res, next) => {
 //! POST /api/classes - Create new class
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    const { name, section, academicYear } = req.body
+    const input = pickFields(req.body, WRITABLE_FIELDS)
 
-    // Check for duplicate class
+    const { name, section, academicYear } = input
+
+    if (
+      typeof input.name !== "string" ||
+      !input.name.trim() ||
+      typeof input.section !== "string" ||
+      !input.section.trim() ||
+      typeof input.academicYear !== "string" ||
+      !input.academicYear.trim()
+    ) {
+      return res.status(400).json({
+        error: "Name, section, and academic year are required",
+      })
+    }
+
+    // Check whether this class combination already exists.
     const duplicate = await Class.findOne({
       name,
       section,
@@ -99,7 +104,10 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       })
     }
 
-    const newClass = await Class.create({ status: "active", ...req.body })
+    // The Class schema defaults status to "active"
+    // when the request doesn't provide a status.
+    const newClass = await Class.create(input)
+
     return res.status(201).json(newClass)
   } catch (err) {
     return next(err)
@@ -110,34 +118,64 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid class ID format" })
+      return res.status(400).json({
+        error: "Invalid class ID format",
+      })
     }
 
-    const { name, section, academicYear } = req.body
-    if (name && section && academicYear) {
-      const duplicate = await Class.findOne({
-        _id: { $ne: req.params.id },
-        name,
-        section,
-        academicYear,
-      }).lean()
+    const updates = pickFields(req.body, WRITABLE_FIELDS)
 
-      if (duplicate) {
-        return res.status(400).json({
-          error: `Class "${name} ${section} (${academicYear})" already exists`,
-        })
-      }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        error: "No valid fields provided for update",
+      })
+    }
+
+    // Retrieve the existing class.
+    const existing = await Class.findById(req.params.id).lean()
+
+    if (!existing) {
+      return res.status(404).json({
+        error: "Class not found",
+      })
+    }
+
+    // Determine the final values after applying the updates.
+    const finalName = updates.name ?? existing.name
+
+    const finalSection = updates.section ?? existing.section
+
+    const finalAcademicYear = updates.academicYear ?? existing.academicYear
+
+    // Check for another class with the same combination.
+    const duplicate = await Class.findOne({
+      _id: { $ne: existing._id },
+      name: finalName,
+      section: finalSection,
+      academicYear: finalAcademicYear,
+    }).lean()
+
+    if (duplicate) {
+      return res.status(400).json({
+        error: `Class "${finalName} ${finalSection} (${finalAcademicYear})" already exists`,
+      })
     }
 
     const updated = await Class.findByIdAndUpdate(
       req.params.id,
-      { $set: req.body },
-      { returnDocument: "after", runValidators: true },
+      { $set: updates },
+      {
+        returnDocument: "after",
+        runValidators: true,
+      },
     ).lean()
 
     if (!updated) {
-      return res.status(404).json({ error: "Class not found" })
+      return res.status(404).json({
+        error: "Class not found",
+      })
     }
+
     return res.json(updated)
   } catch (err) {
     return next(err)
@@ -145,15 +183,22 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 })
 
 //! DELETE /api/classes/:id - Remove class
-router.delete("/:id", allowRoles(...STAFF), async (req, res, next) => {
+router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid class ID format" })
+      return res.status(400).json({
+        error: "Invalid class ID format",
+      })
     }
+
     const deleted = await Class.findByIdAndDelete(req.params.id).lean()
+
     if (!deleted) {
-      return res.status(404).json({ error: "Class not found" })
+      return res.status(404).json({
+        error: "Class not found",
+      })
     }
+
     return res.json({ ok: true })
   } catch (err) {
     return next(err)

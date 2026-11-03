@@ -15,7 +15,7 @@ const classSchema = new mongoose.Schema(
     room: {
       type: String,
       trim: true,
-      maxlength: 50,
+      required: true,
     },
   },
   { timestamps: true },

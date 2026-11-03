@@ -85,49 +85,124 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   }
 })
 
-//! PUT /admissions/:id - Update application details
+//! PUT /admissions/:id - Update admission application
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    if (!isValidObjectId(req.params.id)) {
+    const { id } = req.params
+
+    // 1. Validate the application ID.
+    if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
-        error: "Invalid application ID format",
+        message: "Invalid application ID format",
       })
     }
 
-    const b = { ...req.body }
-    delete b._id
+    // 2. Define the fields that staff are allowed to update.
+    const allowedFields = [
+      "firstName",
+      "lastName",
+      "gender",
+      "dob",
+      "nationality",
+      "curriculum",
+      "classAppliedFor",
+      "academicYear",
+      "address",
+      "allergies",
+      "medicalNotes",
+      "parentName",
+      "parentRelation",
+      "parentMobile",
+      "parentEmail",
+      "parentOccupation",
+    ]
 
-    const updated = await Admission.findByIdAndUpdate(req.params.id, b, {
-      returnDocument: "after",
-      runValidators: true,
-    })
+    // 3. Build an update object using only whitelisted fields.
+    const updates = {}
 
-    if (!updated) {
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        updates[field] = req.body[field]
+      }
+    }
+
+    // 4. Reject requests that contain no permitted fields.
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        message: "No valid fields provided for update",
+      })
+    }
+
+    // 5. Find the existing admission application.
+    const admission = await Admission.findById(id)
+
+    if (!admission) {
       return res.status(404).json({
-        error: "Not found",
+        message: "Admission application not found",
       })
     }
 
-    return res.json(updated)
+    // 6. Only registered applications can be updated.
+    if (admission.status !== "registered") {
+      return res.status(400).json({
+        message: "Only registered admission applications can be updated",
+      })
+    }
+
+    // 7. Apply the permitted updates.
+    const updatedAdmission = await Admission.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      {
+        returnDocument: "after",
+        runValidators: true,
+      },
+    )
+
+    if (!updatedAdmission) {
+      return res.status(404).json({
+        message: "Admission application not found",
+      })
+    }
+
+    // 8. Return the updated application.
+    return res.status(200).json(updatedAdmission)
   } catch (err) {
-    return next(err)
+    next(err)
   }
 })
 
-//! POST /admissions/:id/reject - Reject application
+//! POST /admissions/:id/reject - Reject an admission application
 router.post("/:id/reject", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    if (!isValidObjectId(req.params.id)) {
+    const { id } = req.params
+    const { reason } = req.body
+
+    // 1. Validate the application ID.
+    if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
-        error: "Invalid application ID format",
+        message: "Invalid application ID format",
       })
     }
 
-    const updated = await Admission.findByIdAndUpdate(
-      req.params.id,
+    // 2. Require a rejection reason.
+    if (typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({
+        message: "Rejection reason is required",
+      })
+    }
+
+    // 3. Reject only if the application is still registered.
+    const rejectedAdmission = await Admission.findOneAndUpdate(
       {
-        status: "rejected",
-        rejectReason: req.body.reason || "Not specified",
+        _id: id,
+        status: "registered",
+      },
+      {
+        $set: {
+          status: "rejected",
+          rejectReason: reason.trim(),
+        },
       },
       {
         returnDocument: "after",
@@ -135,15 +210,25 @@ router.post("/:id/reject", allowRoles(...STAFF), async (req, res, next) => {
       },
     )
 
-    if (!updated) {
-      return res.status(404).json({
-        error: "Not found",
+    // 4. Handle missing applications or invalid status.
+    if (!rejectedAdmission) {
+      const admission = await Admission.findById(id).select("status").lean()
+
+      if (!admission) {
+        return res.status(404).json({
+          message: "Admission application not found",
+        })
+      }
+
+      return res.status(400).json({
+        message: "Only registered admission applications can be rejected",
       })
     }
 
-    return res.json(updated)
+    // 5. Return the updated application.
+    return res.status(200).json(rejectedAdmission)
   } catch (err) {
-    return next(err)
+    next(err)
   }
 })
 
@@ -180,7 +265,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
     // Starts a transaction.
     session.startTransaction()
 
-    // Find admission
+    // Find the admission application within the transaction.
     const app = await Admission.findById(id).session(session)
 
     if (!app) {
@@ -188,9 +273,12 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
       return res.status(404).json({ error: "Application not found" })
     }
 
-    if (app.status === "admitted") {
+    // Only registered applications can be enrolled.
+    if (app.status !== "registered") {
       await session.abortTransaction()
-      return res.status(400).json({ error: "Applicant is already admitted" })
+      return res.status(400).json({
+        error: "Only registered admission applications can be enrolled",
+      })
     }
 
     // Find class
@@ -317,12 +405,34 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
     credentials.studentPassword = sPassword
 
     // Update admission application
-    app.status = "admitted"
-    app.studentId = createdStudent._id
-    app.admissionNo = admNo
-    app.enrolledClassId = classId
+    const updatedAdmission = await Admission.findOneAndUpdate(
+      {
+        _id: app._id,
+        status: "registered",
+      },
+      {
+        $set: {
+          status: "admitted",
+          studentId: createdStudent._id,
+          admissionNo: admNo,
+          enrolledClassId: classId,
+        },
+      },
+      {
+        session,
+        returnDocument: "after",
+        runValidators: true,
+      },
+    )
 
-    await app.save({ session })
+    if (!updatedAdmission) {
+      await session.abortTransaction()
+      return res
+        .status(404)
+        .json({
+          error: "Only registered admission applications can be enrolled",
+        })
+    }
 
     // Commits the transaction, making its changes permanent.
     await session.commitTransaction()
