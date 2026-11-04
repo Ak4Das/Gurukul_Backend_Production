@@ -98,8 +98,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 // POST /inventory/:id/move - Stock movement (in | issue)
 // ==========================================
 router.post("/:id/move", allowRoles(...STAFF), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({
@@ -211,8 +212,9 @@ router.get("/:id/movements", allowRoles(...STAFF), async (req, res, next) => {
 // DELETE /inventory/:id - Delete item (Admin only)
 // ==========================================
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({

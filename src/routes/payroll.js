@@ -59,8 +59,9 @@ router.get("/", async (req, res, next) => {
 
 //! POST /payroll - Generate new salary slip
 router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     session.startTransaction()
 
@@ -191,8 +192,9 @@ router.post(
   "/:id/pay",
   allowRoles("admin", "clerk"),
   async (req, res, next) => {
+    let session
     try {
-      const session = await mongoose.startSession()
+      session = await mongoose.startSession()
 
       session.startTransaction()
 
@@ -266,8 +268,9 @@ router.post(
 
 //! DELETE /payroll/:id - Remove salary slip
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     session.startTransaction()
 

@@ -46,10 +46,11 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! POST /admissions - New registration
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
+  let session
   const b = req.body
 
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     session.startTransaction()
 
@@ -259,8 +260,10 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
     })
   }
 
+  let session
+
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     // Starts a transaction.
     session.startTransaction()
@@ -427,11 +430,9 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
 
     if (!updatedAdmission) {
       await session.abortTransaction()
-      return res
-        .status(404)
-        .json({
-          error: "Only registered admission applications can be enrolled",
-        })
+      return res.status(404).json({
+        error: "Only registered admission applications can be enrolled",
+      })
     }
 
     // Commits the transaction, making its changes permanent.

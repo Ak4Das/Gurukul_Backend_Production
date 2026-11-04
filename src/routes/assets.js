@@ -36,8 +36,9 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! POST /assets - Create new asset record
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     const b = req.body
 
@@ -105,8 +106,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
 //! PUT /assets/:id - Update asset details
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({
@@ -233,8 +235,9 @@ router.post(
   "/:id/maintenance",
   allowRoles(...STAFF),
   async (req, res, next) => {
+    let session
     try {
-      const session = await mongoose.startSession()
+      session = await mongoose.startSession()
 
       if (!isValidObjectId(req.params.id)) {
         return res.status(400).json({
