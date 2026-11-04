@@ -47,7 +47,7 @@ function computeGrade(marks, maxMarks, passingMarks) {
 //! GET /exams - List all exams
 router.get("/", async (req, res, next) => {
   try {
-    const query = {}
+    const query = { academicYear: "2026-2027" }
     if (req.query.status) {
       query.status = String(req.query.status)
     }
@@ -62,20 +62,52 @@ router.get("/", async (req, res, next) => {
 //! POST /exams - Schedule new exam
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    const b = req.body
-    if (!b.name || !b.startDate) {
-      return res
-        .status(400)
-        .json({ error: "Exam name and start date are required" })
+    const { name, type, startDate, endDate, classIds, academicYear } = req.body
+
+    if (!name || !type || !startDate || !endDate || !academicYear) {
+      return res.status(400).json({
+        error:
+          "Name, type, start date, end date and academic year are required",
+      })
     }
 
-    const doc = await Exam.create({
+    const isExist = await Exam.find({ name: name.trim() })
+
+    if (isExist.length !== 0) {
+      return res.status(400).json({
+        error: "A exam with this name is already exists",
+      })
+    }
+
+    if (!Array.isArray(classIds) || classIds.length === 0) {
+      return res.status(400).json({
+        error: "At least one class is required",
+      })
+    }
+
+    if (!classIds.every((id) => isValidObjectId(id))) {
+      return res.status(400).json({
+        error: "One or more class IDs are invalid",
+      })
+    }
+
+    if (startDate > endDate) {
+      return res.status(400).json({
+        error: "End date must be greater than or equal to start date",
+      })
+    }
+
+    const exam = await Exam.create({
+      name: name.trim(),
+      type,
+      startDate,
+      endDate,
+      classIds,
+      academicYear,
       status: "scheduled",
-      classIds: b.classIds || [],
-      ...b,
     })
 
-    return res.status(201).json(doc)
+    return res.status(201).json(exam)
   } catch (err) {
     return next(err)
   }
@@ -84,20 +116,98 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 //! PUT /exams/:id - Update exam details
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid exam ID" })
+    const { id } = req.params
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        error: "Invalid exam ID",
+      })
     }
 
-    const b = { ...req.body }
-    delete b._id
+    const { name, type, startDate, endDate, classIds, academicYear } = req.body
 
-    const updated = await Exam.findByIdAndUpdate(req.params.id, b, {
+    // Build update object using only allowed fields
+    const update = {}
+
+    if (name !== undefined) {
+      if (!String(name).trim()) {
+        return res.status(400).json({
+          error: "Exam name cannot be empty",
+        })
+      }
+
+      const isExist = await Exam.find({ name: name.trim() })
+
+      if (isExist.length !== 0) {
+        return res.status(400).json({
+          error: "A exam with this name is already exists",
+        })
+      }
+
+      update.name = String(name).trim()
+    }
+
+    if (type !== undefined) {
+      update.type = type
+    }
+
+    if (startDate !== undefined) {
+      update.startDate = startDate
+    }
+
+    if (endDate !== undefined) {
+      update.endDate = endDate
+    }
+
+    if (classIds !== undefined) {
+      if (!Array.isArray(classIds) || classIds.length === 0) {
+        return res.status(400).json({
+          error: "At least one class is required",
+        })
+      }
+
+      if (!classIds.every((classId) => isValidObjectId(classId))) {
+        return res.status(400).json({
+          error: "One or more class IDs are invalid",
+        })
+      }
+
+      update.classIds = classIds
+    }
+
+    if (academicYear !== undefined) {
+      update.academicYear = academicYear
+    }
+
+    // Validate date relationship when either date is being changed
+    if (startDate !== undefined || endDate !== undefined) {
+      const existingExam = await Exam.findById(id).lean()
+
+      if (!existingExam) {
+        return res.status(404).json({
+          error: "Exam not found",
+        })
+      }
+
+      const finalStartDate = startDate ?? existingExam.startDate
+      const finalEndDate = endDate ?? existingExam.endDate
+
+      if (finalStartDate > finalEndDate) {
+        return res.status(400).json({
+          error: "End date must be greater than or equal to start date",
+        })
+      }
+    }
+
+    const updated = await Exam.findByIdAndUpdate(id, update, {
       returnDocument: "after",
       runValidators: true,
     }).lean()
 
     if (!updated) {
-      return res.status(404).json({ error: "Exam not found" })
+      return res.status(404).json({
+        error: "Exam not found",
+      })
     }
 
     return res.json(updated)
@@ -108,8 +218,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
 //! DELETE /exams/:id - Remove exam and associated marks
 router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid exam ID" })
@@ -186,34 +297,77 @@ router.post(
   async (req, res, next) => {
     try {
       const { classId, subjectId, entries, action } = req.body
+
       if (
         !isValidObjectId(req.params.examId) ||
         !isValidObjectId(classId) ||
         !isValidObjectId(subjectId)
       ) {
-        return res.status(400).json({ error: "Invalid Parameters" })
+        return res.status(400).json({
+          error: "Invalid Parameters",
+        })
       }
 
       const subject = await Subject.findById(subjectId).lean()
-      if (!subject) return res.status(400).json({ error: "Invalid subject" })
+
+      if (!subject) {
+        return res.status(400).json({
+          error: "Invalid subject",
+        })
+      }
 
       const existing = await Mark.findOne({
         examId: req.params.examId,
         classId,
         subjectId,
       })
+
       if (
         existing &&
         ["locked", "published"].includes(existing.status) &&
         req.user.role === "teacher"
       ) {
         return res.status(403).json({
-          error: "Marks are locked. Contact administrator to make changes.",
+          error:
+            "Marks are locked or published. Contact administrator to make changes.",
         })
+      }
+
+      // Validate that all active students have marks before submission
+      if (action === "submitted") {
+        const students = await Student.find({
+          classId,
+          status: "active",
+        })
+          .select("_id firstName lastName rollNo admissionNo")
+          .sort({ rollNo: 1 })
+          .lean()
+
+        const entriesMap = new Map(
+          (entries || []).map((entry) => [entry.studentId?.toString(), entry]),
+        )
+
+        const missingMarks = students.filter((student) => {
+          const entry = entriesMap.get(student._id.toString())
+
+          return (
+            !entry ||
+            entry.marks === undefined ||
+            entry.marks === null ||
+            entry.marks === ""
+          )
+        })
+
+        if (missingMarks.length > 0) {
+          return res.status(400).json({
+            error: "All students must have marks before submitting.",
+          })
+        }
       }
 
       const graded = (entries || []).map((e) => {
         const g = computeGrade(e.marks, subject.maxMarks, subject.passingMarks)
+
         return {
           studentId: e.studentId,
           marks: e.marks === "" ? null : Number(e.marks),
@@ -225,6 +379,7 @@ router.post(
       const status = ["draft", "submitted", "locked"].includes(action)
         ? action
         : "draft"
+
       const payload = {
         examId: req.params.examId,
         classId,
@@ -232,13 +387,21 @@ router.post(
         entries: graded,
         status,
         enteredBy:
-          req.user?.fullName || req.user?.name || req.user?.username || "Staff",
+          req.user?.username || req.user?.fullName || req.user?.name || "Staff",
       }
 
       const doc = await Mark.findOneAndUpdate(
-        { examId: req.params.examId, classId, subjectId },
+        {
+          examId: req.params.examId,
+          classId,
+          subjectId,
+        },
         payload,
-        { upsert: true, returnDocument: "after", runValidators: true },
+        {
+          upsert: true,
+          returnDocument: "after",
+          runValidators: true,
+        },
       ).lean()
 
       return res.json(doc)
@@ -250,8 +413,9 @@ router.post(
 
 //! POST /exams/:examId/publish - Publish results (Admin only)
 router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
+  let session
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     if (!isValidObjectId(req.params.examId)) {
       return res.status(400).json({ error: "Invalid exam ID" })
@@ -298,17 +462,16 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
     // Get all mark sheets created for this exam
     const marks = await Mark.find({
       examId: req.params.examId,
+      status: "submitted",
     })
       .session(session)
       .lean()
 
     // Create a quick lookup of submitted mark sheets
     const submittedSheets = new Set(
-      marks
-        .filter((mark) => mark.status === "submitted")
-        .map(
-          (mark) => `${mark.classId.toString()}_${mark.subjectId.toString()}`,
-        ),
+      marks.map(
+        (mark) => `${mark.classId.toString()}_${mark.subjectId.toString()}`,
+      ),
     )
 
     // Find expected papers that are not submitted
@@ -323,11 +486,6 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
       return res.status(400).json({
         error:
           "All subject papers must be submitted by teachers before publishing.",
-        pendingSheets: pendingSheets.map((sheet) => ({
-          classId: sheet.classId,
-          subjectId: sheet.subjectId,
-          subjectName: sheet.subjectName,
-        })),
       })
     }
 
@@ -373,10 +531,7 @@ router.post("/:examId/publish", allowRoles("admin"), async (req, res, next) => {
   }
 })
 
-// ==========================================
-// GET /exams/:examId/results
-// Exam results overview & toppers list
-// ==========================================
+//! GET /exams/:examId/results Exam results overview & toppers list
 router.get("/:examId/results", async (req, res, next) => {
   try {
     const { classId } = req.query
@@ -415,7 +570,7 @@ router.get("/:examId/results", async (req, res, next) => {
 
     const [sheets, subjects] = await Promise.all([
       Mark.find(query).lean(),
-      Subject.find({}).lean(),
+      Subject.find({ classIds: classId }).lean(),
     ])
 
     const studentIds = [
@@ -440,8 +595,6 @@ router.get("/:examId/results", async (req, res, next) => {
       const subj = subjectMap.get(sheet.subjectId?.toString())
 
       for (const e of sheet.entries || []) {
-        if (e.marks == null) continue
-
         const studentIdStr = e.studentId?.toString()
 
         if (!perStudent[studentIdStr]) {

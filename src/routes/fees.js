@@ -155,6 +155,15 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
         .lean()
 
       return res.json(receipts)
+    } else if (
+      Object.keys(req.query).length === 1 &&
+      Object.keys(req.query)[0] === "limit"
+    ) {
+      const receipts = await FeeReceipt.find({ limit: req.query.limit })
+        .sort({ date: -1, createdAt: -1 })
+        .lean()
+
+      return res.json(receipts)
     }
     // API uses 1-based page numbers.
     const pageNumber = Math.max(Number(req.query.page), 1)
