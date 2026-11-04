@@ -43,8 +43,6 @@ async function seed() {
       "logbook",
       "activities",
       "helpdesk",
-      "assets",
-      "inventoryItems",
       "stockMovements",
       "timetables",
       "ptms",
@@ -849,7 +847,6 @@ async function seed() {
     { key: "admissionNo", value: 12 },
     { key: "registration", value: 4 },
     { key: "receipt", value: 6 },
-    { key: "assetTag", value: 5 },
     { key: "studentUser", value: 12 },
     { key: "parentUser", value: 6 },
     { key: "salarySlip", value: 5 },
@@ -1146,124 +1143,6 @@ async function seed() {
     },
   ])
 
-  // ---------- Assets ----------
-  await col("assets").insertMany([
-    {
-      tag: "AST-00001",
-      name: "Projector — Epson X41",
-      category: "Electronics",
-      location: "Room 101",
-      purchaseDate: "2023-05-10",
-      cost: 42000,
-      status: "in-use",
-      maintenance: [
-        {
-          date: daysAgo(60),
-          description: "Lamp replacement",
-          cost: 3500,
-          by: "Clerk 1",
-        },
-      ],
-    },
-    {
-      tag: "AST-00002",
-      name: "Microscope Set (10 units)",
-      category: "Lab Equipment",
-      location: "Science Lab",
-      purchaseDate: "2022-08-01",
-      cost: 85000,
-      status: "in-use",
-      maintenance: [],
-    },
-    {
-      tag: "AST-00003",
-      name: "Desktop PC — Lab",
-      category: "Electronics",
-      location: "Computer Lab",
-      purchaseDate: "2021-11-20",
-      cost: 38000,
-      status: "maintenance",
-      maintenance: [
-        {
-          date: daysAgo(4),
-          description: "RAM upgrade + servicing",
-          cost: 2800,
-          by: "Clerk 2",
-        },
-      ],
-    },
-    {
-      tag: "AST-00004",
-      name: "Water Purifier",
-      category: "Appliances",
-      location: "Cafeteria",
-      purchaseDate: "2023-01-15",
-      cost: 15000,
-      status: "in-use",
-      maintenance: [],
-    },
-    {
-      tag: "AST-00005",
-      name: "School Bus — KA01 AB 1234",
-      category: "Vehicle",
-      location: "Parking",
-      purchaseDate: "2019-04-01",
-      cost: 1450000,
-      status: "in-use",
-      maintenance: [
-        {
-          date: daysAgo(15),
-          description: "Oil change and brake pads",
-          cost: 8500,
-          by: "Clerk 1",
-        },
-      ],
-    },
-  ])
-
-  // ---------- Inventory ----------
-  const inv = await col("inventoryItems").insertMany([
-    {
-      name: "A4 Paper",
-      category: "Stationery",
-      unit: "pack",
-      quantity: 42,
-      reorderLevel: 20,
-      status: "active",
-    },
-    {
-      name: "Whiteboard Markers",
-      category: "Stationery",
-      unit: "pieces",
-      quantity: 15,
-      reorderLevel: 24,
-      status: "active",
-    },
-    {
-      name: "Chalk Boxes",
-      category: "Stationery",
-      unit: "box",
-      quantity: 60,
-      reorderLevel: 10,
-      status: "active",
-    },
-    {
-      name: "Cleaning Liquid",
-      category: "Housekeeping",
-      unit: "litre",
-      quantity: 8,
-      reorderLevel: 10,
-      status: "active",
-    },
-    {
-      name: "Printer Toner",
-      category: "Office",
-      unit: "pieces",
-      quantity: 5,
-      reorderLevel: 2,
-      status: "active",
-    },
-  ])
   await col("stockMovements").insertMany([
     {
       itemId: inv[0]._id,

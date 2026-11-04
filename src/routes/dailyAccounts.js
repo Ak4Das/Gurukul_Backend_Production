@@ -5,7 +5,6 @@ import mongoose from "mongoose"
 import { DailyAccount } from "../models/DailyAccount.js"
 // middleware imports
 import { authRequired, allowRoles, STAFF } from "../middleware/auth.js"
-import { InventoryItem } from "../models/InventoryItem.js"
 
 const router = Router()
 
@@ -97,25 +96,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
   body.recordedBy = req.user.username
 
-  if (body.category !== "Supplies") {
-    delete body.itemName
-  } else {
-    if (!body.itemName) {
-      return res.status(404).json({ error: "Item name is required" })
-    }
-
-    const item = await InventoryItem.findOne({ name: body.itemName }).lean()
-
-    if (!item) {
-      return res.status(404).json({ error: "Item not found" })
-    }
-
-    body.itemId = item._id
-    if (!body.description) {
-      body.description = `Item ${item.name} — ${item.category}`
-    }
-  }
-
   try {
     const dailyAccount = await DailyAccount.create(body)
     return res.status(201).json(dailyAccount)
@@ -142,41 +122,9 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
     body.recordedBy = req.user.username
 
-    if (body.category !== "Supplies") {
-      delete body.itemName
-      delete body.itemId
-    } else {
-      if (!body.itemName) {
-        return res.status(404).json({ error: "Item name is required" })
-      }
-
-      const item = await InventoryItem.findOne({ name: body.itemName }).lean()
-
-      if (!item) {
-        return res.status(404).json({ error: "Item not found" })
-      }
-
-      body.itemId = item._id
-      if (!body.description) {
-        body.description = `Item ${item.name} — ${item.category}`
-      }
-    }
-
-    const unset = {}
-
-    if (body.category === "Supplies") {
-      unset.assetName = ""
-      unset.assetId = ""
-    } else {
-      unset.itemName = ""
-      unset.itemId = ""
-      unset.assetName = ""
-      unset.assetId = ""
-    }
-
     const updated = await DailyAccount.findByIdAndUpdate(
       req.params.id,
-      { $set: body, $unset: unset },
+      { $set: body },
       { returnDocument: "after", runValidators: true },
     ).lean()
 

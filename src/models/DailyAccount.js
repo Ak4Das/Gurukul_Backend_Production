@@ -18,11 +18,8 @@ const dailyAccountSchema = new mongoose.Schema(
         "Fees",
         "Donation",
         "Utilities",
-        "Supplies",
         "Salary",
-        "Transport",
         "Maintenance",
-        "Assets",
       ],
       required: true,
     },
@@ -36,20 +33,6 @@ const dailyAccountSchema = new mongoose.Schema(
     receiptId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "FeeReceipt",
-    },
-    itemName: {
-      type: String,
-    },
-    itemId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "InventoryItem",
-    },
-    assetName: {
-      type: String,
-    },
-    assetId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Asset",
     },
     slipNumber: {
       type: String,
@@ -81,7 +64,7 @@ const dailyAccountSchema = new mongoose.Schema(
 // Date-based ledger/report queries
 dailyAccountSchema.index({ date: -1 })
 
-// sparse: true is because not every DailyAccount is a salary transaction. You have other categories such as Fees, Donation, Utilities, Assets, etc.
+// sparse: true is because not every DailyAccount is a salary transaction. You have other categories such as Fees, Donation, Utilities, etc.
 // Enforces one accounting entry per salary slip
 dailyAccountSchema.index(
   { slipId: 1 },

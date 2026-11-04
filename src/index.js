@@ -10,7 +10,6 @@ import { Settings } from "./models/Settings.js"
 // Route imports
 import activityRoutes from "./routes/activities.js"
 import admissionsRoutes from "./routes/admissions.js"
-import assetsRoutes from "./routes/assets.js"
 import attendanceRoutes from "./routes/attendance.js"
 import authRoutes from "./routes/auth.js"
 import calendarRoutes from "./routes/calender.js"
@@ -21,7 +20,6 @@ import examsRoutes from "./routes/exams.js"
 import feesRoutes from "./routes/fees.js"
 import feeStructuresRoutes from "./routes/feeStructures.js"
 import helpdeskRoutes from "./routes/helpdesk.js"
-import inventoryRoutes from "./routes/inventory.js"
 import logbookRoutes from "./routes/logbook.js"
 import noticesRoutes from "./routes/notices.js"
 import parentsRoutes from "./routes/parents.js"
@@ -82,7 +80,6 @@ app.get("/api/public/settings", async (req, res, next) => {
 //! API ROUTES
 app.use("/api/activities", activityRoutes)
 app.use("/api/admissions", admissionsRoutes)
-app.use("/api/assets", assetsRoutes)
 app.use("/api/attendance", attendanceRoutes)
 app.use("/api/auth", authRoutes)
 app.use("/api/calendar", calendarRoutes)
@@ -93,7 +90,6 @@ app.use("/api/exams", examsRoutes)
 app.use("/api/fees", feesRoutes)
 app.use("/api/fee-structures", feeStructuresRoutes)
 app.use("/api/helpdesk", helpdeskRoutes)
-app.use("/api/inventory", inventoryRoutes)
 app.use("/api/logbook", logbookRoutes)
 app.use("/api/notices", noticesRoutes)
 app.use("/api/parents", parentsRoutes)

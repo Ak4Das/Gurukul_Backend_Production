@@ -136,7 +136,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
         })
       }
 
-      const isExist = await Exam.find({ name: name.trim() })
+      const isExist = await Exam.find({ name: name.trim(), _id: { $ne: id } })
 
       if (isExist.length !== 0) {
         return res.status(400).json({
