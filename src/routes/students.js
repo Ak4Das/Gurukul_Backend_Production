@@ -35,7 +35,7 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
       const query = { ...req.query }
       delete query.paginated
 
-      const docs = await Student.find(query).sort({ admissionNo: 1 })
+      const docs = await Student.find(query).sort({ admissionNo: 1 }).lean()
 
       return res.json(docs)
     }

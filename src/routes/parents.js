@@ -13,12 +13,105 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id)
 }
 
-//! GET /api/parents - Find all matching parents
+//! GET /api/parents - Filtering, sorting and pagination
 router.get("/", async (req, res, next) => {
   try {
-    const parents = await Parent.find().sort({ name: 1 }).lean()
+    // If no query parameters are provided, return the entire collection.
+    if (Object.keys(req.query).length === 0) {
+      const parents = await Parent.find().sort({ name: 1 }).lean()
 
-    return res.json(parents)
+      return res.json(parents)
+    }
+
+    // 1. Extract query parameters
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      sortBy = "name",
+      sortOrder = "asc",
+    } = req.query
+
+    // 2. Validate pagination parameters
+    const pageNumber = Number(page)
+    const pageSize = Number(limit)
+
+    const allowedPageSizes = [10, 25, 50, 100]
+
+    if (pageNumber < 1 || !allowedPageSizes.includes(pageSize)) {
+      return res.status(400).json({
+        error: "Invalid pagination parameters",
+      })
+    }
+
+    // 3. Whitelist sortable fields
+    const allowedSortFields = [
+      "name",
+      "relation",
+      "mobile",
+      "email",
+      "occupation",
+      "status",
+    ]
+
+    if (!allowedSortFields.includes(sortBy)) {
+      return res.status(400).json({
+        error: "Invalid sort field",
+      })
+    }
+
+    if (!["asc", "desc"].includes(sortOrder)) {
+      return res.status(400).json({
+        error: "Invalid sort order",
+      })
+    }
+
+    // 4. Build the search filter
+    const filter = {}
+    const searchTerm = String(search).trim()
+
+    if (searchTerm) {
+      // Escape regex special characters so search input is treated
+      // as literal text rather than an arbitrary regular expression.
+      const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+      const searchRegex = new RegExp(escapedSearch, "i")
+
+      filter.$or = [
+        { name: searchRegex },
+        { relation: searchRegex },
+        { mobile: searchRegex },
+        { email: searchRegex },
+        { occupation: searchRegex },
+        { address: searchRegex },
+        { status: searchRegex },
+      ]
+    }
+
+    // 5. Calculate sorting and pagination
+    const sort = {
+      [sortBy]: sortOrder === "asc" ? 1 : -1,
+    }
+
+    const skip = (pageNumber - 1) * pageSize
+
+    // 6. Execute database queries in parallel
+    const [parents, total] = await Promise.all([
+      Parent.find(filter).sort(sort).skip(skip).limit(pageSize).lean(),
+
+      Parent.countDocuments(filter),
+    ])
+
+    // 7. Return paginated response
+    return res.json({
+      data: parents,
+      pagination: {
+        total,
+        page: pageNumber,
+        limit: pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    })
   } catch (err) {
     return next(err)
   }
