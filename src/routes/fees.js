@@ -50,13 +50,17 @@ async function calculateStudentFee(studentId, res) {
 
   const ITEMS = []
   for (const f of applicable) {
-    if (f.category === "transport" && !student.transportRequired) continue
+    if (f.category === "transport" && !student.transportRequired) {
+      continue
+    }
 
     const classFee = f.classIds.find(
       (obj) => obj.classId.toString() === studentClassIdStr,
     )
 
-    if (!classFee) continue
+    if (!classFee) {
+      continue
+    }
 
     ITEMS.push({
       structureId: f._id,
@@ -139,33 +143,166 @@ router.get("/compute/:studentId", async (req, res, next) => {
   }
 })
 
-//! GET /fees - Receipts list
+//! GET /fees - Paginated receipts list
 router.get("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 100)
+    // If no query parameters are provided, return the entire collection.
+    if (Object.keys(req.query).length === 0) {
+      // Sorts documents first by date in descending order — newest date first.
+      // Then, only for documents having the same date, it sorts them by createdAt in descending order.
+      const receipts = await FeeReceipt.find()
+        .sort({ date: -1, createdAt: -1 })
+        .lean()
 
-    const query = {}
+      return res.json(receipts)
+    }
+    // API uses 1-based page numbers.
+    const pageNumber = Math.max(Number(req.query.page), 1)
+
+    // Validate limit parameters
+    const limit = Number(req.query.limit)
+
+    const allowedPageSizes = [10, 25, 50, 100]
+
+    if (!allowedPageSizes.includes(limit)) {
+      return res.status(400).json({
+        error: "Invalid pagination parameters",
+      })
+    }
+
+    const skip = (pageNumber - 1) * limit
+
+    //* Base query
+    // These filters are common to:
+    // - all receipts count
+    // - paid count
+    // - refunded count
+    // - current table query
+    // - total collection calculation
+    const baseQuery = {}
+
+    // Server-side search.
+    const searchTerm = String(req.query.search).trim()
+    if (searchTerm) {
+      // Escape regex special characters so search input is treated as literal text rather than an arbitrary regular expression.
+      const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+      const searchRegex = new RegExp(escapedSearch, "i")
+
+      baseQuery.$or = [
+        { receiptNo: searchRegex },
+        { studentName: searchRegex },
+        { admissionNo: searchRegex },
+        { className: searchRegex },
+        { mode: searchRegex },
+        { status: searchRegex },
+      ]
+    }
+
+    const query = { ...baseQuery }
 
     if (req.query.status) {
       query.status = String(req.query.status)
     }
-    if (req.query.studentId && isValidObjectId(req.query.studentId)) {
-      query.studentId = req.query.studentId
-    }
 
-    let dbQuery = FeeReceipt.find(query)
-      .sort({
-        date: -1,
-        createdAt: -1,
+    // Server-side sorting
+    const allowedSortFields = [
+      "receiptNo",
+      "date",
+      "studentName",
+      "className",
+      "amountDue",
+      "amountPaid",
+      "balance",
+      "mode",
+      "status",
+    ]
+
+    const sortBy = String(req.query.sortBy || "date")
+
+    if (!allowedSortFields.includes(sortBy)) {
+      return res.status(400).json({
+        error: "Invalid sort field",
       })
-      .lean()
-
-    if (limit > 0) {
-      dbQuery = dbQuery.limit(limit)
     }
 
-    const receipts = await dbQuery
-    return res.json(receipts)
+    const sortOrder =
+      String(req.query.sortOrder).toLowerCase() === "asc" ? 1 : -1
+
+    const sort = {
+      [sortBy]: sortOrder,
+      createdAt: -1,
+    }
+
+    // Pagination + counts + collection
+    const [
+      receipts,
+      total,
+      allCount,
+      paidCount,
+      refundedCount,
+      collectionResult,
+    ] = await Promise.all([
+      // Only fetch the current page.
+      FeeReceipt.find(query).sort(sort).skip(skip).limit(limit).lean(),
+
+      // Total records for the currently selected tab/filter.
+      FeeReceipt.countDocuments(query),
+
+      // Total receipts independent of the selected status tab.
+      FeeReceipt.countDocuments(baseQuery),
+
+      // Total paid receipts.
+      FeeReceipt.countDocuments({
+        ...baseQuery,
+        status: "paid",
+      }),
+
+      // Total refunded receipts.
+      FeeReceipt.countDocuments({
+        ...baseQuery,
+        status: "refunded",
+      }),
+
+      // Total collection independent of pagination.
+      FeeReceipt.aggregate([
+        {
+          $match: {
+            ...baseQuery,
+            status: { $ne: "refunded" },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalCollected: {
+              $sum: "$amountPaid",
+            },
+          },
+        },
+      ]),
+    ])
+
+    const totalPages = Math.max(1, Math.ceil(total / limit))
+
+    return res.json({
+      data: receipts,
+
+      pagination: {
+        page: total === 0 ? 1 : Math.min(pageNumber, totalPages),
+        limit,
+        total,
+        totalPages,
+      },
+
+      counts: {
+        all: allCount,
+        paid: paidCount,
+        refunded: refundedCount,
+      },
+
+      totalCollected: collectionResult[0]?.totalCollected || 0,
+    })
   } catch (err) {
     return next(err)
   }
@@ -175,12 +312,17 @@ router.get("/", allowRoles(...STAFF), async (req, res, next) => {
 router.get("/:id", async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid receipt ID format" })
+      return res.status(400).json({
+        error: "Invalid receipt ID format",
+      })
     }
 
     const doc = await FeeReceipt.findById(req.params.id).lean()
+
     if (!doc) {
-      return res.status(404).json({ error: "Receipt not found" })
+      return res.status(404).json({
+        error: "Receipt not found",
+      })
     }
 
     return res.json(doc)
@@ -192,8 +334,10 @@ router.get("/:id", async (req, res, next) => {
 //! POST /fees - Record a fee payment
 // Here i use a MongoDB transaction/session so both operations succeed or both roll back.
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
+  let session = null
+
   try {
-    const session = await mongoose.startSession()
+    session = await mongoose.startSession()
 
     const b = req.body
 
@@ -208,12 +352,6 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       description: String(i.name || ""),
       amount: Number(i.amount) || 0,
     }))
-
-    if (items.some((item) => item.amount < 0)) {
-      return res.status(400).json({
-        error: "Fee amount cannot be negative",
-      })
-    }
 
     const today = new Date()
 
@@ -250,7 +388,9 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
     const lateFee = Number(b.lateFee) || 0
     const discount = Number(b.discount) || 0
+
     const amountDue = subTotal + lateFee - discount
+
     const amountPaid = amountDue
     const balance = 0
     const status = "paid"
@@ -273,11 +413,15 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       })
     }
 
-    // It's cleaner to perform the read/validation work first and start the transaction immediately before the operations that must be atomic
+    // It's cleaner to perform the read/validation work first
+    // and start the transaction immediately before the operations
+    // that must be atomic.
     session.startTransaction()
 
     const seq = await nextSeq("receipt", session)
+
     const receiptNo = `RCP-${new Date().getFullYear()}-${String(seq).padStart(8, "0")}`
+
     const userName = req.user?.name || req.user?.username
 
     const [doc] = await FeeReceipt.create(
@@ -287,11 +431,15 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
           studentId: student._id,
           studentName: `${student.firstName} ${student.lastName || ""}`.trim(),
           admissionNo: student.admissionNo,
+
           className: klass
             ? `${klass.name} ${klass.section} (${klass.academicYear})`
             : "",
+
           academicYear: klass?.academicYear || "",
+
           date: new Date().toISOString().slice(0, 10),
+
           items,
           subTotal,
           lateFee,
@@ -308,7 +456,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
       { session },
     )
 
-    // Mirror income into Daily Accounts
+    // Mirror income into Daily Accounts.
     if (amountPaid > 0) {
       await DailyAccount.create(
         [
@@ -332,37 +480,15 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
     return res.status(201).json(doc)
   } catch (err) {
-    if (session.inTransaction()) {
+    if (session?.inTransaction()) {
       await session.abortTransaction()
     }
+
     return next(err)
   } finally {
-    await session.endSession()
-  }
-})
-
-//! PUT /fees/:id - Update receipt details
-router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
-  try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid receipt ID format" })
+    if (session) {
+      await session.endSession()
     }
-
-    const b = { ...req.body }
-    delete b._id
-
-    const updated = await FeeReceipt.findByIdAndUpdate(req.params.id, b, {
-      returnDocument: "after",
-      runValidators: true,
-    }).lean()
-
-    if (!updated) {
-      return res.status(404).json({ error: "Receipt not found" })
-    }
-
-    return res.json(updated)
-  } catch (err) {
-    return next(err)
   }
 })
 
@@ -371,8 +497,10 @@ router.post(
   "/:id/refund",
   allowRoles("admin", "clerk"),
   async (req, res, next) => {
+    let session = null
+
     try {
-      const session = await mongoose.startSession()
+      session = await mongoose.startSession()
 
       if (!isValidObjectId(req.params.id)) {
         return res.status(400).json({
@@ -418,13 +546,15 @@ router.post(
 
       return res.json(updated)
     } catch (err) {
-      if (session.inTransaction()) {
+      if (session?.inTransaction()) {
         await session.abortTransaction()
       }
 
       return next(err)
     } finally {
-      await session.endSession()
+      if (session) {
+        await session.endSession()
+      }
     }
   },
 )

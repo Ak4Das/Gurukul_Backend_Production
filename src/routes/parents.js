@@ -102,14 +102,16 @@ router.get("/", async (req, res, next) => {
       Parent.countDocuments(filter),
     ])
 
+    const totalPages = Math.ceil(total / pageSize)
+
     // 7. Return paginated response
     return res.json({
       data: parents,
       pagination: {
         total,
-        page: pageNumber,
+        page: total === 0 ? 1 : Math.min(pageNumber, totalPages),
         limit: pageSize,
-        totalPages: Math.ceil(total / pageSize),
+        totalPages,
       },
     })
   } catch (err) {
