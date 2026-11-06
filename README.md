@@ -109,3 +109,45 @@ THREE POINTS TO CHECK
 1. get id from req.params.id and validate this id 
 2. delete document using Subject.findByIdAndDelete(req.params.id).lean()
 3. send response
+
+# /routes/ptm.js
+
+## GET /api/ptm
+1. get ptm documents using Ptm.find().sort({ date: -1 }).lean()
+2. send response
+
+## GET /api/ptm/:id
+1. get id from req.params.id and validate this id 
+2. find ptm using Ptm.findById()
+3. send response
+
+## POST /api/ptm
+1. title must be string and must be non empty
+2. date must be string and must be in yyyy-mm-dd format
+3. Validate that the date is an actual calendar date
+4. Validate that PTM date is not in the past
+4. slots must be string and must be non empty
+5. check at least one class is required and class Ids must be valid ids
+6. Prevent duplicate class IDs
+7. check that status must be valid status
+8. notes must be string and must be non empty
+9. Verify that all referenced classes exist
+10. Create ptm using Ptm.create()
+
+## PUT /api/ptm/:id
+1. title must be string and must be non empty
+2. date must be string and must be in yyyy-mm-dd format
+3. Validate that the date is an actual calendar date
+4. Validate that PTM date is not in the past
+4. slots must be string and must be non empty
+5. check at least one class is required and class Ids must be valid ids
+6. Prevent duplicate class IDs
+7. check that status must be valid status
+8. notes must be string and must be non empty
+9. Verify that all referenced classes exist
+10. Create ptm using Ptm.findByIdAndUpdate()
+
+## DELETE /api/ptm/:id
+1. get id from req.params.id and validate it
+2. delete ptm using Ptm.findByIdAndDelete()
+3. send response

@@ -10,7 +10,7 @@ const router = Router()
 // Require authentication for all settings endpoints
 router.use(authRequired)
 
-//! GET /api/settings - List all configuration settings
+//! GET /api/settings - get school settings
 router.get("/", async (req, res, next) => {
   try {
     const doc = await Settings.findOne({ key: "school" }).lean()
@@ -20,7 +20,7 @@ router.get("/", async (req, res, next) => {
   }
 })
 
-//! PUT /api/settings - Replace setting details (Admin only)
+//! PUT /api/settings - Replace school setting details (Admin only)
 router.put("/", allowRoles("admin"), async (req, res, next) => {
   try {
     const existing = await Settings.findOne({ key: "school" })
