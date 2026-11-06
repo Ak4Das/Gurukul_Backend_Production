@@ -12,49 +12,100 @@ const userSchema = new mongoose.Schema(
     },
     passwordHash: {
       type: String,
-      required: [true, "Password hash is required"],
+      required: [true, "Password is required"],
+      minlength: [6, "Password must be at least 6 characters long"],
     },
     fullName: {
       type: String,
       required: [true, "Full name is required"],
       trim: true,
+      match: [/^[A-Z]/, "First letter must be capital"],
     },
     role: {
       type: String,
-      required: true,
-      enum: ["admin", "clerk", "teacher", "supervisor", "student", "parent"],
+      required: [true, "Role is required"],
+      enum: {
+        values: [
+          "admin",
+          "clerk",
+          "teacher",
+          "supervisor",
+          "student",
+          "parent",
+        ],
+        message: "Invalid role",
+      },
     },
     status: {
       type: String,
-      enum: ["active", "suspended", "inactive"],
+      required: [true, "Status is required"],
+      enum: {
+        values: ["active", "suspended", "inactive"],
+        message: "Invalid status",
+      },
       default: "active",
     },
     email: {
       type: String,
-      default: "",
+      required: [
+        function () {
+          return ["admin", "supervisor", "clerk", "teacher"].includes(this.role)
+        },
+        "Email is required for admin, supervisor, clerk, and teacher roles",
+      ],
       lowercase: true,
       trim: true,
+      match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Invalid email address"],
     },
     mobile: {
       type: String,
-      default: "",
+      required: [
+        function () {
+          return ["admin", "supervisor", "clerk", "teacher", "parent"].includes(
+            this.role,
+          )
+        },
+        "Mobile number is required for admin, supervisor, clerk, teacher, and parent roles",
+      ],
       trim: true,
+      match: [
+        /^\+[1-9]\d{0,2} \d{5} \d{5}$/,
+        "Mobile number must be '+<country code> <Five digit> <Remaining Five digits>' format",
+      ],
     },
     gender: {
       type: String,
-      enum: ["Male", "Female", "Other"],
+      required: [true, "Gender is required"],
+      enum: {
+        values: ["Male", "Female", "Other"],
+        message: "Invalid gender",
+      },
       default: "Male",
     },
     dob: {
       type: String,
+      match: [
+        /^\d{4}-\d{2}-\d{2}$/,
+        "Date of birth must be in YYYY-MM-DD format",
+      ],
     },
     address: {
       type: String,
       default: "",
+      trim: true,
     },
-    qualification: { type: String },
-    specialization: { type: String },
-    joined: { type: String },
+
+    qualification: {
+      type: String,
+      trim: true,
+    },
+    specialization: {
+      type: String,
+      trim: true,
+    },
+    joined: {
+      type: String,
+    },
     refId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

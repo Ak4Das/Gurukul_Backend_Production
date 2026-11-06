@@ -66,19 +66,58 @@ router.post(
         joined,
       } = req.body
 
-      if (!username || !password || !fullName || !role) {
+      if (!username || !password || !fullName || !role || !status || !gender) {
         return res.status(400).json({
-          error: "Username, password, full name, and role are required",
+          error: "Username, password, full name, role, status, gender are required",
         })
       }
 
       const normalizedUsername = username.toLowerCase().trim()
-      const existingUser = await User.findOne({ username: normalizedUsername })
+      const normalizedEmail = email ? email.toLowerCase().trim() : ""
+      const normalizedMobile = mobile ? mobile.trim() : ""
 
+      // Roles for which email and mobile must be unique
+      const uniqueContactRoles = [
+        "admin",
+        "clerk",
+        "supervisor",
+        "teacher",
+        "parent",
+      ]
+
+      // Check duplicate username
+      const existingUser = await User.findOne({
+        username: normalizedUsername,
+      })
       if (existingUser) {
-        return res
-          .status(400)
-          .json({ error: `Username "${normalizedUsername}" is already exist` })
+        return res.status(400).json({
+          error: `Username "${normalizedUsername}" is already exist`,
+        })
+      }
+
+      // Check email and mobile uniqueness only for selected roles
+      if (uniqueContactRoles.includes(role)) {
+        if (normalizedEmail) {
+          const existingEmail = await User.findOne({
+            email: normalizedEmail,
+          })
+          if (existingEmail) {
+            return res.status(400).json({
+              error: `Email "${normalizedEmail}" is already registered`,
+            })
+          }
+        }
+
+        if (normalizedMobile) {
+          const existingMobile = await User.findOne({
+            mobile: normalizedMobile,
+          })
+          if (existingMobile) {
+            return res.status(400).json({
+              error: `Mobile number "${normalizedMobile}" is already registered`,
+            })
+          }
+        }
       }
 
       // Pass password as passwordHash to trigger Mongoose pre-save hook
@@ -87,15 +126,15 @@ router.post(
         passwordHash: String(password),
         fullName: fullName.trim(),
         role: role,
-        email: email ? email.trim() : "",
-        mobile: mobile ? mobile.trim() : "",
         gender: gender ? gender : "",
         status: status ? status : "active",
         dob: dob ? dob : "",
-        qualification: qualification ? qualification : "",
-        specialization: specialization ? specialization : "",
         address: address ? address : "",
-        joined: joined ? joined : undefined,
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+        ...(normalizedMobile ? { mobile: normalizedMobile } : {}),
+        ...(qualification ? { qualification: qualification || "" } : {}),
+        ...(specialization ? { specialization: specialization || "" } : {}),
+        ...(joined ? { joined } : {}),
       })
 
       return res.status(201).json(newUser.toPublicJSON())
@@ -117,6 +156,7 @@ router.put(
       }
 
       const user = await User.findById(req.params.id)
+
       if (!user) {
         return res.status(404).json({ error: "User not found" })
       }
@@ -137,6 +177,15 @@ router.put(
         joined,
       } = req.body
 
+      // Roles for which email and mobile must be unique
+      const uniqueContactRoles = [
+        "admin",
+        "clerk",
+        "supervisor",
+        "teacher",
+        "parent",
+      ]
+
       // Check duplicate username if username is changing
       if (username) {
         const normalizedUsername = username.toLowerCase().trim()
@@ -149,6 +198,7 @@ router.put(
               error: `Username "${normalizedUsername}" is already taken`,
             })
           }
+
           user.username = normalizedUsername
         }
       }
@@ -156,43 +206,89 @@ router.put(
       if (fullName !== undefined) {
         user.fullName = fullName.trim()
       }
-      if (email !== undefined) {
-        user.email = email.trim()
+
+      // Normalize email before comparison
+      const normalizedEmail =
+        email !== undefined ? email.toLowerCase().trim() : undefined
+
+      // Normalize mobile before comparison
+      const normalizedMobile = mobile !== undefined ? mobile.trim() : undefined
+
+      if (
+        normalizedEmail !== undefined &&
+        normalizedEmail !== user.email &&
+        uniqueContactRoles.includes(user.role)
+      ) {
+        const duplicateEmail = await User.findOne({
+          email: normalizedEmail,
+        })
+
+        if (duplicateEmail) {
+          return res.status(400).json({
+            error: `Email "${normalizedEmail}" is already registered`,
+          })
+        }
+
+        user.email = normalizedEmail
       }
-      if (mobile !== undefined) {
-        user.mobile = mobile.trim()
+
+      if (
+        normalizedMobile !== undefined &&
+        normalizedMobile !== user.mobile &&
+        uniqueContactRoles.includes(user.role)
+      ) {
+        const duplicateMobile = await User.findOne({
+          mobile: normalizedMobile,
+        })
+
+        if (duplicateMobile) {
+          return res.status(400).json({
+            error: `Mobile number "${normalizedMobile}" is already registered`,
+          })
+        }
+
+        user.mobile = normalizedMobile
       }
+
       if (gender !== undefined) {
         user.gender = gender
       }
+
       if (role !== undefined) {
         user.role = role
       }
+
       if (status !== undefined) {
         user.status = status
       }
+
       if (dob !== undefined) {
         user.dob = dob
       }
+
       if (qualification !== undefined) {
         user.qualification = qualification
       }
+
       if (specialization !== undefined) {
         user.specialization = specialization
       }
+
       if (address !== undefined) {
         user.address = address
       }
+
       if (joined !== undefined) {
         user.joined = joined
       }
 
-      // Setting passwordHash triggers pre('save') hook on save()
+      // Setting passwordHash triggers pre('save') hook
       if (password) {
         user.passwordHash = String(password)
       }
 
       await user.save()
+
       return res.json(user.toPublicJSON())
     } catch (err) {
       return next(err)
@@ -268,9 +364,11 @@ router.post("/:id/status", allowRoles("admin"), async (req, res, next) => {
       return res.status(400).json({ error: "Invalid user ID format" })
     }
 
+    const validStatuses = ["active", "suspended", "inactive"]
+
     const { status } = req.body
-    if (!status) {
-      return res.status(400).json({ error: "Status string is required" })
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Valid status string is required" })
     }
 
     const updatedUser = await User.findByIdAndUpdate(
