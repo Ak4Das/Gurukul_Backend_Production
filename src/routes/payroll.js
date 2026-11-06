@@ -7,7 +7,7 @@ import { User } from "../models/User.js"
 import { DailyAccount } from "../models/DailyAccount.js"
 import { nextSeq } from "../models/Counter.js"
 // middleware imports
-import { authRequired, allowRoles } from "../middleware/auth.js"
+import { authRequired, allowRoles, STAFF_TEACHER } from "../middleware/auth.js"
 
 const router = Router()
 router.use(authRequired)
@@ -30,7 +30,7 @@ function compute(b) {
 }
 
 //! GET /payroll - List salary slips
-router.get("/", async (req, res, next) => {
+router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
   try {
     const isStaff = ["admin", "clerk", "supervisor"].includes(req.user.role)
     const query = {}
@@ -57,7 +57,7 @@ router.get("/", async (req, res, next) => {
   }
 })
 
-//! POST /payroll - Generate new salary slip
+//! POST /payroll - Generate or Edit salary slip
 router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
   let session
   try {
@@ -92,6 +92,7 @@ router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
     const duplicateSalarySlip = await SalarySlip.findOne({
       staffId: b.staffId,
       month: b.month,
+      ...(b.slipId ? { _id: { $ne: b.slipId } } : {}),
     })
       .session(session)
       .lean()
@@ -107,83 +108,49 @@ router.post("/", allowRoles("admin", "clerk"), async (req, res, next) => {
     // Counter increment is part of the same transaction
     const seq = await nextSeq("salarySlip", session)
 
-    const computedValues = compute(b)
-
-    const doc = await SalarySlip.create(
-      [
-        {
-          slipNo: `SLP-${b.month.replace("-", "")}-${String(seq).padStart(4, "0")}`,
-          staffId: staff._id,
-          staffName: staff.fullName || staff.name,
-          role: staff.role,
-          designation: staff.specialization || staff.role,
-          month: b.month,
-          ...computedValues,
-          workingDays: Number(b.workingDays) || 26,
-          presentDays: Number(b.presentDays) ?? (Number(b.workingDays) || 26),
-          mode: b.mode || "cash",
-          status: "generated",
-          generatedBy:
-            req.user.fullName || req.user.name || req.user.username || "Admin",
-        },
-      ],
-      { session },
+    const doc = await SalarySlip.findOneAndUpdate(
+      {
+        ...(b.slipId
+          ? { _id: b.slipId }
+          : { staffId: b.staffId, month: b.month }),
+      },
+      {
+        slipNo: `SLP-${b.month.replace("-", "")}-${String(seq).padStart(4, "0")}`,
+        staffId: staff._id,
+        staffName: staff.fullName || staff.name,
+        role: staff.role,
+        designation: staff.specialization || staff.role,
+        month: b.month,
+        salary: Number(b.salary) || 0,
+        gross: Number(b.salary) || 0,
+        totalAllowances: 0,
+        totalDeductions: 0,
+        netPay: Number(b.salary) || 0,
+        workingDays: Number(b.workingDays) || 26,
+        presentDays: Number(b.presentDays) ?? (Number(b.workingDays) || 26),
+        mode: b.mode || "cash",
+        status: "generated",
+        generatedBy:
+          req.user.fullName || req.user.name || req.user.username || "Admin",
+      },
+      {
+        returnDocument: "after",
+        runValidators: true,
+        upsert: true,
+      },
     )
+      .session(session)
+      .lean()
 
     await session.commitTransaction()
 
-    return res.status(201).json(doc[0])
+    return res.status(201).json(doc)
   } catch (err) {
     await session.abortTransaction()
 
     return next(err)
   } finally {
     await session.endSession()
-  }
-})
-
-//! PUT /payroll/:id - Update salary slip
-router.put("/:id", allowRoles("admin", "clerk"), async (req, res, next) => {
-  try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid slip ID" })
-    }
-
-    const existing = await SalarySlip.findById(req.params.id).lean()
-    if (!existing) {
-      return res.status(404).json({ error: "Slip not found" })
-    }
-    if (existing.status === "paid") {
-      return res.status(400).json({
-        error: "Paid slips cannot be edited",
-      })
-    }
-
-    const b = { ...req.body }
-    delete b._id
-
-    const computedValues = compute({
-      ...existing,
-      ...b,
-    })
-
-    const updateData = {
-      ...b,
-      ...computedValues,
-    }
-
-    const updated = await SalarySlip.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      {
-        returnDocument: "after",
-        runValidators: true,
-      },
-    ).lean()
-
-    return res.json(updated)
-  } catch (err) {
-    return next(err)
   }
 })
 
