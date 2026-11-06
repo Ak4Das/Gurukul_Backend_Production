@@ -13,11 +13,9 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
   try {
     const teachers = await User.find({
       role: "teacher",
-    }).sort({ fullName: 1 })
+    }).sort({ fullName: 1 }).lean()
 
-    const result = teachers.map((teacher) => teacher.toPublicJSON())
-
-    return res.json(result)
+    return res.json(teachers)
   } catch (err) {
     return next(err)
   }

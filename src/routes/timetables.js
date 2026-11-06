@@ -34,7 +34,7 @@ router.get("/:classId", async (req, res, next) => {
       })
     }
 
-    const classExists = await Class.exists({ _id: classId })
+    const classExists = await Class.findOne({ _id: classId })
 
     if (!classExists) {
       return res.status(404).json({
@@ -60,7 +60,7 @@ router.get("/:classId", async (req, res, next) => {
 router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
   try {
     const { classId } = req.params
-    const { periods } = req.body
+    const { timetableId, periods } = req.body
 
     // Validate classId
     if (!isValidObjectId(classId)) {
@@ -89,6 +89,13 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
     if (periods.length === 0) {
       return res.status(400).json({
         error: "At least one timetable period is required",
+      })
+    }
+
+    // Validate timetableId when supplied
+    if (timetableId && !isValidObjectId(timetableId)) {
+      return res.status(400).json({
+        error: "Invalid timetable ID",
       })
     }
 
@@ -179,6 +186,7 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
       .select("_id fullName")
       .lean()
 
+    // Make teacher lookup efficient
     const teacherMap = new Map(
       teachers.map((teacher) => [String(teacher._id), teacher]),
     )
@@ -219,17 +227,69 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
       periods: validatedPeriods,
     }
 
-    // Create timetable if it doesn't exist,
-    // otherwise update the existing timetable.
+    // CREATE
+    if (!timetableId) {
+      // Check whether a timetable already exists for this class
+      const existingTimetable = await Timetable.exists({
+        classId,
+      })
+
+      if (existingTimetable) {
+        return res.status(409).json({
+          error: "Timetable already exists for this class",
+        })
+      }
+
+      const doc = await Timetable.create(payload)
+
+      return res.status(201).json(doc)
+    }
+
+    // UPDATE
+    // Verify that the timetable being updated exists
+    const timetableExists = await Timetable.exists({
+      _id: timetableId,
+    })
+
+    if (!timetableExists) {
+      return res.status(404).json({
+        error: "Timetable not found",
+      })
+    }
+
+    // Check whether another timetable already uses this classId.
+    // The current timetable being updated is excluded using $ne.
+    const duplicateTimetable = await Timetable.exists({
+      classId,
+      _id: { $ne: timetableId },
+    })
+
+    if (duplicateTimetable) {
+      return res.status(409).json({
+        error: "Another timetable already exists for this class",
+      })
+    }
+
+    // Update the specified timetable
     const doc = await Timetable.findOneAndUpdate(
-      { classId },
-      { $set: payload },
+      {
+        _id: timetableId,
+        classId,
+      },
+      {
+        $set: payload,
+      },
       {
         returnDocument: "after",
-        upsert: true,
         runValidators: true,
       },
     ).lean()
+
+    if (!doc) {
+      return res.status(404).json({
+        error: "Timetable not found for this class",
+      })
+    }
 
     return res.json(doc)
   } catch (err) {

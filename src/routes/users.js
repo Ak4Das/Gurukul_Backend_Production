@@ -68,7 +68,8 @@ router.post(
 
       if (!username || !password || !fullName || !role || !status || !gender) {
         return res.status(400).json({
-          error: "Username, password, full name, role, status, gender are required",
+          error:
+            "Username, password, full name, role, status, gender are required",
         })
       }
 
@@ -120,22 +121,33 @@ router.post(
         }
       }
 
-      // Pass password as passwordHash to trigger Mongoose pre-save hook
-      const newUser = await User.create({
+      // Base user data
+      const userData = {
         username: normalizedUsername,
         passwordHash: String(password),
         fullName: fullName.trim(),
-        role: role,
-        gender: gender ? gender : "",
-        status: status ? status : "active",
+        role,
+        gender,
+        status,
         dob: dob ? dob : "",
         address: address ? address : "",
-        ...(normalizedEmail ? { email: normalizedEmail } : {}),
-        ...(normalizedMobile ? { mobile: normalizedMobile } : {}),
-        ...(qualification ? { qualification: qualification || "" } : {}),
-        ...(specialization ? { specialization: specialization || "" } : {}),
+        ...(qualification ? { qualification } : {}),
+        ...(specialization ? { specialization } : {}),
         ...(joined ? { joined } : {}),
-      })
+      }
+
+      // Email and mobile are NOT stored for student users
+      if (role !== "student") {
+        if (normalizedEmail) {
+          userData.email = normalizedEmail
+        }
+
+        if (normalizedMobile) {
+          userData.mobile = normalizedMobile
+        }
+      }
+
+      const newUser = await User.create(userData)
 
       return res.status(201).json(newUser.toPublicJSON())
     } catch (err) {
@@ -186,6 +198,9 @@ router.put(
         "parent",
       ]
 
+      // Determine the role after this update
+      const finalRole = role !== undefined ? role : user.role
+
       // Check duplicate username if username is changing
       if (username) {
         const normalizedUsername = username.toLowerCase().trim()
@@ -214,40 +229,45 @@ router.put(
       // Normalize mobile before comparison
       const normalizedMobile = mobile !== undefined ? mobile.trim() : undefined
 
-      if (
-        normalizedEmail !== undefined &&
-        normalizedEmail !== user.email &&
-        uniqueContactRoles.includes(user.role)
-      ) {
-        const duplicateEmail = await User.findOne({
-          email: normalizedEmail,
-        })
-
-        if (duplicateEmail) {
-          return res.status(400).json({
-            error: `Email "${normalizedEmail}" is already registered`,
+      if (finalRole === "student") {
+        delete user.email
+        delete user.mobile
+      } else {
+        if (
+          normalizedEmail !== undefined &&
+          normalizedEmail !== user.email &&
+          uniqueContactRoles.includes(finalRole)
+        ) {
+          const duplicateEmail = await User.findOne({
+            email: normalizedEmail,
           })
+
+          if (duplicateEmail) {
+            return res.status(400).json({
+              error: `Email "${normalizedEmail}" is already registered`,
+            })
+          }
+
+          user.email = normalizedEmail
         }
 
-        user.email = normalizedEmail
-      }
-
-      if (
-        normalizedMobile !== undefined &&
-        normalizedMobile !== user.mobile &&
-        uniqueContactRoles.includes(user.role)
-      ) {
-        const duplicateMobile = await User.findOne({
-          mobile: normalizedMobile,
-        })
-
-        if (duplicateMobile) {
-          return res.status(400).json({
-            error: `Mobile number "${normalizedMobile}" is already registered`,
+        if (
+          normalizedMobile !== undefined &&
+          normalizedMobile !== user.mobile &&
+          uniqueContactRoles.includes(finalRole)
+        ) {
+          const duplicateMobile = await User.findOne({
+            mobile: normalizedMobile,
           })
-        }
 
-        user.mobile = normalizedMobile
+          if (duplicateMobile) {
+            return res.status(400).json({
+              error: `Mobile number "${normalizedMobile}" is already registered`,
+            })
+          }
+
+          user.mobile = normalizedMobile
+        }
       }
 
       if (gender !== undefined) {

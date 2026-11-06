@@ -16,49 +16,7 @@ function isValidObjectId(id) {
 //! GET /api/subjects - Find all subjects
 router.get("/", async (req, res, next) => {
   try {
-    const query = {}
-
-    // Parse standard filter query params
-    for (const [key, value] of Object.entries(req.query)) {
-      if (["sort", "limit", "skip", "search", "searchFields"].includes(key))
-        continue
-      if (value !== undefined && value !== "") {
-        if (value === "true") {
-          query[key] = true
-        } else if (value === "false") {
-          query[key] = false
-        } else {
-          query[key] = value
-        }
-      }
-    }
-
-    // Regex Search across specified fields
-    if (req.query.search && req.query.searchFields) {
-      const searchTerm = String(req.query.search).trim()
-      const fields = String(req.query.searchFields)
-        .split(",")
-        .map((field) => field.trim())
-
-      if (searchTerm && fields.length > 0) {
-        query.$or = fields.map((field) => ({
-          [field]: { $regex: searchTerm, $options: "i" },
-        }))
-      }
-    }
-
-    // Build Mongoose query object
-    // Model.find() builds a Query. The query executes when Mongoose gets an execution trigger such as await, .then(), or .exec().
-    let execQuery = Subject.find(query).sort({ name: 1 })
-
-    if (req.query.skip) {
-      execQuery = execQuery.skip(Number(req.query.skip))
-    }
-    if (req.query.limit) {
-      execQuery = execQuery.limit(Number(req.query.limit))
-    }
-
-    const subjects = await execQuery.lean()
+    const subjects = await Subject.find().sort({ name: 1 }).lean()
     return res.json(subjects)
   } catch (err) {
     return next(err)
@@ -71,8 +29,13 @@ router.get("/:id", async (req, res, next) => {
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid subject ID format" })
     }
+
     const subject = await Subject.findById(req.params.id).lean()
-    if (!subject) return res.status(404).json({ error: "Subject not found" })
+
+    if (!subject) {
+      return res.status(404).json({ error: "Subject not found" })
+    }
+
     return res.json(subject)
   } catch (err) {
     return next(err)
@@ -82,7 +45,96 @@ router.get("/:id", async (req, res, next) => {
 //! POST /api/subjects/ - Create subject
 router.post("/", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    const subject = await Subject.create(req.body)
+    const { name, code, category, classIds, maxMarks, passingMarks } = req.body
+
+    // Validate subject name
+    if (typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({
+        error: "Subject name is required",
+      })
+    }
+
+    // Validate subject code
+    if (typeof code !== "string" || !code.trim()) {
+      return res.status(400).json({
+        error: "Subject code is required",
+      })
+    }
+
+    // Validate category
+    const allowedCategories = [
+      "Core",
+      "Elective",
+      "Vocational",
+      "Extracurricular",
+      "General",
+    ]
+
+    if (category !== undefined && !allowedCategories.includes(category)) {
+      return res.status(400).json({
+        error: "Invalid subject category",
+      })
+    }
+
+    // Validate classIds
+    if (!Array.isArray(classIds) || classIds.length === 0) {
+      return res.status(400).json({
+        error: "At least one class is required",
+      })
+    }
+
+    const invalidClassId = classIds.some((classId) => !isValidObjectId(classId))
+
+    if (invalidClassId) {
+      return res.status(400).json({
+        error: "One or more class IDs are invalid",
+      })
+    }
+
+    // Validate maxMarks
+    if (typeof maxMarks !== "number" || maxMarks <= 0) {
+      return res.status(400).json({
+        error: "Maximum marks must be a positive number",
+      })
+    }
+
+    // Validate passingMarks
+    if (typeof passingMarks !== "number" || passingMarks <= 0) {
+      return res.status(400).json({
+        error: "Passing marks must be a positive number",
+      })
+    }
+
+    // Passing marks cannot exceed maximum marks
+    if (passingMarks > maxMarks) {
+      return res.status(400).json({
+        error: "Passing marks cannot exceed maximum marks",
+      })
+    }
+
+    // Normalize code before duplicate check
+    const normalizedCode = code.trim().toUpperCase()
+
+    // Check duplicate subject code
+    const existingSubject = await Subject.exists({
+      code: normalizedCode,
+    })
+
+    if (existingSubject) {
+      return res.status(409).json({
+        error: "Subject code already exists",
+      })
+    }
+
+    const subject = await Subject.create({
+      name: name.trim(),
+      code: normalizedCode,
+      category: category || "Core",
+      classIds,
+      maxMarks,
+      passingMarks,
+    })
+
     return res.status(201).json(subject)
   } catch (err) {
     return next(err)
@@ -92,17 +144,121 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 //! PUT /api/subjects/:id - Update subject by ID
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid subject ID format" })
+    const { id } = req.params
+
+    // Validate subject ID
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        error: "Invalid subject ID format",
+      })
     }
-    let body = { ...req.body }
-    delete body._id
+
+    const { name, code, category, classIds, maxMarks, passingMarks } = body
+
+    // Validate subject name
+    if (typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({
+        error: "Subject name is required",
+      })
+    }
+
+    // Validate subject code
+    if (typeof code !== "string" || !code.trim()) {
+      return res.status(400).json({
+        error: "Subject code is required",
+      })
+    }
+
+    // Validate category
+    const allowedCategories = [
+      "Core",
+      "Elective",
+      "Vocational",
+      "Extracurricular",
+      "General",
+    ]
+
+    if (!allowedCategories.includes(category)) {
+      return res.status(400).json({
+        error: "Invalid subject category",
+      })
+    }
+
+    // Validate classIds
+    if (!Array.isArray(classIds) || classIds.length === 0) {
+      return res.status(400).json({
+        error: "At least one class is required",
+      })
+    }
+
+    const invalidClassId = classIds.some((classId) => !isValidObjectId(classId))
+
+    if (invalidClassId) {
+      return res.status(400).json({
+        error: "One or more class IDs are invalid",
+      })
+    }
+
+    // Validate maxMarks
+    if (typeof maxMarks !== "number" || maxMarks <= 0) {
+      return res.status(400).json({
+        error: "Maximum marks must be a positive number",
+      })
+    }
+
+    // Validate passingMarks
+    if (typeof passingMarks !== "number" || passingMarks < 0) {
+      return res.status(400).json({
+        error: "Passing marks must be a non-negative number",
+      })
+    }
+
+    // Passing marks cannot exceed maximum marks
+    if (passingMarks > maxMarks) {
+      return res.status(400).json({
+        error: "Passing marks cannot exceed maximum marks",
+      })
+    }
+
+    // Normalize subject code
+    const normalizedCode = code.trim().toUpperCase()
+
+    // Check duplicate code excluding the current subject
+    const existingSubject = await Subject.exists({
+      code: normalizedCode,
+      _id: { $ne: id },
+    })
+
+    if (existingSubject) {
+      return res.status(409).json({
+        error: "Subject code already exists",
+      })
+    }
+
     const updated = await Subject.findByIdAndUpdate(
-      req.params.id,
-      { $set: body },
-      { new: true, runValidators: true },
+      id,
+      {
+        $set: {
+          name: name.trim(),
+          code: normalizedCode,
+          category,
+          classIds,
+          maxMarks,
+          passingMarks,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
     ).lean()
-    if (!updated) return res.status(404).json({ error: "Subject not found" })
+
+    if (!updated) {
+      return res.status(404).json({
+        error: "Subject not found",
+      })
+    }
+
     return res.json(updated)
   } catch (err) {
     return next(err)
@@ -115,10 +271,13 @@ router.delete("/:id", allowRoles(...STAFF), async (req, res, next) => {
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid subject ID format" })
     }
+
     const deleted = await Subject.findByIdAndDelete(req.params.id).lean()
+
     if (!deleted) {
       return res.status(404).json({ error: "Subject not found" })
     }
+
     return res.json({ ok: true })
   } catch (err) {
     return next(err)

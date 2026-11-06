@@ -13,13 +13,15 @@ THREE POINTS TO CHECK
 1. username, password, fullName, role, status, gender are required fields if not pass then return response with error
 2. Check duplicate username
 3. Check email and mobile uniqueness only for admin, clerk, supervisor, teacher, parent
-4. Create User using User.create()
+4. Create Base user data and add email and mobile number only if user is not a student
+5. Create User using User.create()
 
 ## PUT /users/:id - Update user details
 1. Check user exists or not using User.findById(req.params.id)
 2. Check duplicate username if username is changing
 3. Check email and mobile uniqueness only for admin, clerk, supervisor, teacher, parent if email and mobile number is changing
-4. Save user using user.save() (here user is the user document fetched at the first time when we check user exists or not)
+4. if user is not a student
+5. Save user using user.save() (here user is the user document fetched at the first time when we check user exists or not)
 
 ## POST /users/:id/reset-password
 1. get id from req.params and oldPassword, newPassword from req.body
@@ -41,6 +43,12 @@ THREE POINTS TO CHECK
 
 # /routes/timetables.js
 
+## GET /api/timetables/:classId
+1. get classId from req.params and then validate it 
+2. check that class exists or not using Class.findOne({ _id: classId })
+3. find timetable using Timetable.findOne({ classId }).lean()
+4. send response
+
 ## POST /api/timetables/:classId
 1. get classId from req.params and then validate it 
 2. fetch class using classId to check class exists or not
@@ -55,8 +63,49 @@ THREE POINTS TO CHECK
 11. Create teacherMap for efficient teacher lookup
 12. Check every teacherId from teacherIds that teacher exists or not
 13. Build timetable periods
-14. uses Timetable.findOneAndUpdate() to create or edit timetable
+14. For create check timetable already exists or not using classId and then Timetable.create() to create timetable
+15. For update check timetable already exists or not using timetableId 
+16. Check duplicate timetable document using classId and _id: { $ne: timetableId }
+17. Update using Timetable.findOneAndUpdate()
 
 ## DELETE /api/timetables/:id
 1. Get classId from req.params.classId and validate it
 2. delete timetable using findOneAndDelete
+
+# /routes/subjects.js
+
+## GET /api/subjects
+1. find subjects using Subject.find().sort({ name: 1 }).lean()
+2. send response
+
+## GET /api/subjects/:id
+1. get id from req.params.id and validate this id 
+2. find subject using Subject.findById(req.params.id).lean()
+3. send response
+
+## POST /api/subjects/
+1. subject name must be string and nonempty
+2. subject code must be string and nonempty
+3. category must be valid category
+4. classIds must be valid ids
+5. maxMarks must be number and grater then 0
+6. passingMarks must be number and grater then 0
+7. Passing marks cannot exceed maximum marks
+8. Check duplicate subject code
+9. Create subject using Subject.create()
+
+## PUT /api/subjects/:id
+1. subject name must be string and nonempty
+2. subject code must be string and nonempty
+3. category must be valid category
+4. classIds must be valid ids
+5. maxMarks must be number and grater then 0
+6. passingMarks must be number and grater then 0
+7. Passing marks cannot exceed maximum marks
+8. Check duplicate subject code
+9. Update subject using Subject.findByIdAndUpdate()
+
+## DELETE /api/subjects/:id
+1. get id from req.params.id and validate this id 
+2. delete document using Subject.findByIdAndDelete(req.params.id).lean()
+3. send response
