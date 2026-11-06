@@ -3,6 +3,9 @@ import { Router } from "express"
 import mongoose from "mongoose"
 // model imports
 import { Timetable } from "../models/Timetable.js"
+import { Class } from "../models/Class.js"
+import { Subject } from "../models/Subject.js"
+import { User } from "../models/User.js"
 // middleware imports
 import {
   authRequired,
@@ -20,47 +23,212 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id)
 }
 
-//! GET /api/timetables - List all timetables
-router.get("/", async (req, res, next) => {
-  try {
-    const timetables = await Timetable.find().sort({ createdAt: -1 }).lean()
-    return res.json(timetables)
-  } catch (err) {
-    return next(err)
-  }
-})
-
 //! GET /api/timetables/:classId - Get timetable by classId
 router.get("/:classId", async (req, res, next) => {
   try {
-    if (!isValidObjectId(req.params.classId)) {
-      return res.status(400).json({ error: "Invalid class ID" })
+    const { classId } = req.params
+
+    if (!isValidObjectId(classId)) {
+      return res.status(400).json({
+        error: "Invalid class ID",
+      })
     }
 
-    const doc = await Timetable.findOne({ classId: req.params.classId }).lean()
-    return res.json(doc || { classId: req.params.classId, periods: [] })
+    const classExists = await Class.exists({ _id: classId })
+
+    if (!classExists) {
+      return res.status(404).json({
+        error: "Class not found",
+      })
+    }
+
+    const doc = await Timetable.findOne({ classId }).lean()
+
+    // If class exists but timetable hasn't been created yet
+    return res.json(
+      doc || {
+        classId,
+        periods: [],
+      },
+    )
   } catch (err) {
     return next(err)
   }
 })
 
-//! POST /api/timetables/:classId - Create a new timetable for a particular class
+//! POST /api/timetables/:classId - Create or update timetable for a particular class
 router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
   try {
-    if (!isValidObjectId(req.params.classId)) {
-      return res.status(400).json({ error: "Invalid class ID" })
+    const { classId } = req.params
+    const { periods } = req.body
+
+    // Validate classId
+    if (!isValidObjectId(classId)) {
+      return res.status(400).json({
+        error: "Invalid class ID",
+      })
     }
+
+    // Verify that the class exists
+    const classExists = await Class.exists({ _id: classId })
+
+    if (!classExists) {
+      return res.status(404).json({
+        error: "Class not found",
+      })
+    }
+
+    // periods must be an array
+    if (!Array.isArray(periods)) {
+      return res.status(400).json({
+        error: "Periods must be an array",
+      })
+    }
+
+    // A timetable must contain at least one period
+    if (periods.length === 0) {
+      return res.status(400).json({
+        error: "At least one timetable period is required",
+      })
+    }
+
+    // Check duplicate day + period combinations
+    const slotKeys = periods.map((item) => `${item.day}-${item.period}`)
+
+    const uniqueSlotKeys = new Set(slotKeys)
+
+    if (uniqueSlotKeys.size !== slotKeys.length) {
+      return res.status(400).json({
+        error: "Duplicate timetable period found for the same day",
+      })
+    }
+
+    // Collect subject and teacher IDs
+    const subjectIds = [
+      ...new Set(
+        periods
+          .map((item) => item.subjectId)
+          .filter(Boolean)
+          .map(String),
+      ),
+    ]
+
+    const teacherIds = [
+      ...new Set(
+        periods
+          .map((item) => item.teacherId)
+          .filter(Boolean)
+          .map(String),
+      ),
+    ]
+
+    // Validate subject IDs
+    if (subjectIds.some((id) => !isValidObjectId(id))) {
+      return res.status(400).json({
+        error: "Invalid subject ID",
+      })
+    }
+
+    // Validate teacher IDs
+    if (teacherIds.some((id) => !isValidObjectId(id))) {
+      return res.status(400).json({
+        error: "Invalid teacher ID",
+      })
+    }
+
+    // Fetch all referenced subjects
+    const subjects = await Subject.find({
+      _id: { $in: subjectIds },
+    })
+      .select("_id name classIds")
+      .lean()
+
+    // Make subject lookup efficient
+    const subjectMap = new Map(
+      subjects.map((subject) => [String(subject._id), subject]),
+    )
+
+    // Make sure every subject exists
+    for (const subjectId of subjectIds) {
+      if (!subjectMap.has(subjectId)) {
+        return res.status(400).json({
+          error: `Subject not found: ${subjectId}`,
+        })
+      }
+    }
+
+    // Make sure subjects belong to the selected class
+    for (const subjectId of subjectIds) {
+      const subject = subjectMap.get(subjectId)
+
+      if (
+        Array.isArray(subject.classIds) &&
+        !subject.classIds.some((id) => String(id) === String(classId))
+      ) {
+        return res.status(400).json({
+          error: `Subject "${subject.name}" does not belong to the selected class`,
+        })
+      }
+    }
+
+    // Fetch all referenced teachers
+    const teachers = await User.find({
+      _id: { $in: teacherIds },
+      role: "teacher",
+    })
+      .select("_id fullName")
+      .lean()
+
+    const teacherMap = new Map(
+      teachers.map((teacher) => [String(teacher._id), teacher]),
+    )
+
+    // Make sure every teacher exists
+    for (const teacherId of teacherIds) {
+      if (!teacherMap.has(teacherId)) {
+        return res.status(400).json({
+          error: `Teacher not found: ${teacherId}`,
+        })
+      }
+    }
+
+    // Build trusted timetable periods
+    const validatedPeriods = periods.map((period) => {
+      const subject = period.subjectId
+        ? subjectMap.get(String(period.subjectId))
+        : null
+
+      const teacher = period.teacherId
+        ? teacherMap.get(String(period.teacherId))
+        : null
+
+      return {
+        day: period.day,
+        period: period.period,
+        start: period.start,
+        end: period.end,
+        subjectId: subject?._id,
+        subjectName: subject?.name || "Free",
+        teacherId: teacher?._id,
+        teacherName: teacher?.fullName || "",
+      }
+    })
 
     const payload = {
-      classId: req.params.classId,
-      periods: req.body.periods || [],
+      classId,
+      periods: validatedPeriods,
     }
 
-    // If classId not match with any document then new document will create since { upsert: true } is mentioned
+    // Create timetable if it doesn't exist,
+    // otherwise update the existing timetable.
     const doc = await Timetable.findOneAndUpdate(
-      { classId: req.params.classId },
+      { classId },
       { $set: payload },
-      { returnDocument: "after", upsert: true, runValidators: true },
+      {
+        returnDocument: "after",
+        upsert: true,
+        runValidators: true,
+      },
     ).lean()
 
     return res.json(doc)
@@ -78,12 +246,15 @@ router.delete(
       if (!isValidObjectId(req.params.classId)) {
         return res.status(400).json({ error: "Invalid classId format" })
       }
+
       const deleted = await Timetable.findOneAndDelete({
         classId: req.params.classId,
       }).lean()
+
       if (!deleted) {
         return res.status(404).json({ error: "Timetable not found" })
       }
+
       return res.json({ success: true, id: req.params.id })
     } catch (err) {
       return next(err)

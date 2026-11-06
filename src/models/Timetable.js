@@ -67,6 +67,7 @@ const timetableSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Class",
       required: true,
+      unique: true,
     },
 
     periods: {
