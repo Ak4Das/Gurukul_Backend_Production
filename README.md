@@ -151,3 +151,36 @@ THREE POINTS TO CHECK
 1. get id from req.params.id and validate it
 2. delete ptm using Ptm.findByIdAndDelete()
 3. send response
+
+# /routes/notices.js
+
+## GET /api/notices/:id
+1. get id from req.params.id and validate it
+2. find notice using Notice.findById(req.params.id).lean()
+3. return response
+
+## POST /api/notices
+1. title must be string and must be non empty
+2. content must be string and must be non empty
+2. date must be string and must be in yyyy-mm-dd format
+3. Validate that the date is an actual calendar date
+4. Validate that date is not in the past
+4. Check that status must be a valid status
+5. check that audience must be a valid audience
+6. Create notice using Notice.create()
+
+## PUT /api/notices/:id
+1. get id from req.params.id and validate it
+1. title must be string and must be non empty
+2. content must be string and must be non empty
+2. date must be string and must be in yyyy-mm-dd format
+3. Validate that the date is an actual calendar date
+4. Validate that date is not in the past
+4. Check that status must be a valid status
+5. check that audience must be a valid audience
+6. Update notice using Notice.findByIdAndUpdate()
+
+## DELETE /api/notices/:id
+1. get id from req.params.id and validate it
+2. delete notice using Notice.findByIdAndDelete()
+3. return response
