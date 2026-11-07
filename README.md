@@ -154,6 +154,10 @@ THREE POINTS TO CHECK
 
 # /routes/notices.js
 
+## GET /api/notices
+1. get notices documents using Notice.find().sort({ date: -1 }).lean()
+2. send response
+
 ## GET /api/notices/:id
 1. get id from req.params.id and validate it
 2. find notice using Notice.findById(req.params.id).lean()
@@ -187,6 +191,15 @@ THREE POINTS TO CHECK
 
 # /routes/logbook.js
 
+## GET /api/logbook
+1. get logbook documents using Logbook.find().sort({ date: -1 }).lean()
+2. send response
+
+## GET /api/logbook/:id
+1. get id from req.params.id and validate this id 
+2. find logbook using Logbook.findById()
+3. send response
+
 ## POST /api/logbook
 1. teacherName must be string and must be non empty
 2. validate classId
@@ -215,3 +228,33 @@ THREE POINTS TO CHECK
 1. get id from req.params.id and validate it
 2. delete logbook using Logbook.findByIdAndDelete()
 3. return response
+
+# /routes/helpdesk.js
+
+## GET /api/helpdesk
+1. get helpdesk documents using Helpdesk.find().sort({ createdAt: -1 }).lean()
+2. send response
+
+## GET /api/helpdesk/:id
+1. get id from req.params.id and validate this id 
+2. find helpdesk using Helpdesk.findById()
+3. send response
+
+## POST /api/helpdesk
+1. subject must be string and must be non empty
+2. description must be string and must be non empty
+3. category must be a valid category
+4. priority must be a valid priority
+5. Create body with all required data
+6. Create ticket using Helpdesk.create(body)
+
+## PUT /api/helpdesk/:id
+1. get id from req.params.id and validate it
+2. status must be a valid status
+3. Update ticket using Helpdesk.findByIdAndUpdate()
+
+## DELETE /api/helpdesk/:id
+1. get id from req.params.id and validate it
+2. check ticket exists or not
+3. only closed complaints can be deleted
+4. delete ticket using Helpdesk.findByIdAndDelete()

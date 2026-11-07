@@ -23,49 +23,7 @@ function isValidObjectId(id) {
 //! GET /api/helpdesk - List all helpdesk tickets
 router.get("/", async (req, res, next) => {
   try {
-    const query = {}
-
-    // Parse standard filter query params
-    for (const [key, value] of Object.entries(req.query)) {
-      if (["sort", "limit", "skip", "search", "searchFields"].includes(key))
-        continue
-      if (value !== undefined && value !== "") {
-        if (value === "true") {
-          query[key] = true
-        } else if (value === "false") {
-          query[key] = false
-        } else {
-          query[key] = value
-        }
-      }
-    }
-
-    // Regex Search across specified fields
-    if (req.query.search && req.query.searchFields) {
-      const searchTerm = String(req.query.search).trim()
-      const fields = String(req.query.searchFields)
-        .split(",")
-        .map((field) => field.trim())
-
-      if (searchTerm && fields.length > 0) {
-        query.$or = fields.map((field) => ({
-          [field]: { $regex: searchTerm, $options: "i" },
-        }))
-      }
-    }
-
-    // Build Mongoose query object
-    // Model.find() builds a Query. The query executes when Mongoose gets an execution trigger such as await, .then(), or .exec().
-    let execQuery = Helpdesk.find(query).sort({ createdAt: -1 })
-
-    if (req.query.skip) {
-      execQuery = execQuery.skip(Number(req.query.skip))
-    }
-    if (req.query.limit) {
-      execQuery = execQuery.limit(Number(req.query.limit))
-    }
-
-    const tickets = await execQuery.lean()
+    const tickets = await Helpdesk.find().sort({ createdAt: -1 }).lean()
     return res.json(tickets)
   } catch (err) {
     return next(err)
@@ -80,10 +38,13 @@ router.get("/:id", async (req, res, next) => {
         .status(400)
         .json({ error: "Invalid helpdesk ticket ID format" })
     }
+
     const item = await Helpdesk.findById(req.params.id).lean()
+
     if (!item) {
       return res.status(404).json({ error: "Helpdesk ticket not found" })
     }
+
     return res.json(item)
   } catch (err) {
     return next(err)
@@ -96,20 +57,56 @@ router.post(
   allowRoles("student", "parent", "teacher"),
   async (req, res, next) => {
     try {
-      const body = {
-        subject: req.body.subject,
-        description: req.body.description,
-        category: req.body.category,
-        priority: req.body.priority,
+      const { subject, description, category, priority } = req.body
 
-        // Always derived from authenticated user.
+      // Validate subject
+      if (typeof subject !== "string" || !subject.trim()) {
+        return res.status(400).json({
+          error: "Subject is required",
+        })
+      }
+
+      // Validate description
+      if (typeof description !== "string" || !description.trim()) {
+        return res.status(400).json({
+          error: "Description is required",
+        })
+      }
+
+      // Validate category
+      const allowedCategories = [
+        "Academic",
+        "Fees & Finance",
+        "Transport",
+        "IT & Portal",
+        "Hostel",
+        "General Query",
+        "Other",
+      ]
+
+      if (category !== undefined && !allowedCategories.includes(category)) {
+        return res.status(400).json({
+          error: "Invalid helpdesk category",
+        })
+      }
+
+      // Validate priority
+      const allowedPriorities = ["low", "medium", "high", "urgent"]
+
+      if (priority !== undefined && !allowedPriorities.includes(priority)) {
+        return res.status(400).json({
+          error: "Invalid helpdesk priority",
+        })
+      }
+
+      const body = {
+        subject: subject.trim(),
+        description: description.trim(),
+        category: category || "General Query",
+        priority: priority || "medium",
         raisedBy: req.user.username,
         role: req.user.role,
-
-        // Always open when created.
         status: "open",
-
-        // No staff member has handled it yet.
         assignedTo: "",
       }
 
@@ -121,7 +118,8 @@ router.post(
     }
   },
 )
-//! PUT /api/helpdesk/:id - Replace helpdesk ticket details
+
+//! PUT /api/helpdesk/:id - Update helpdesk ticket status
 router.put(
   "/:id",
   allowRoles("admin", "clerk", "supervisor"),
@@ -133,9 +131,20 @@ router.put(
           .json({ error: "Invalid helpdesk ticket ID format" })
       }
 
+      const { status } = req.body
+
+      // Validate status
+      const allowedStatuses = ["open", "in progress", "resolved", "closed"]
+
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          error: "Invalid helpdesk ticket status",
+        })
+      }
+
       // Only status is accepted from the frontend.
       const update = {
-        status: req.body.status,
+        status,
 
         // Automatically record which staff member handled it.
         assignedTo: req.user.username,
