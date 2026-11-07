@@ -184,3 +184,34 @@ THREE POINTS TO CHECK
 1. get id from req.params.id and validate it
 2. delete notice using Notice.findByIdAndDelete()
 3. return response
+
+# /routes/logbook.js
+
+## POST /api/logbook
+1. teacherName must be string and must be non empty
+2. validate classId
+3. validate subjectId
+4. date must be string and must be in yyyy-mm-dd format
+5. Check whether date is a real calendar date
+6. Validate that date is not in the past
+7. topicCovered must be string and must be non empty
+8. homeworkGiven must be string
+9. remarks must be string
+10. Create logbook using Logbook.create()
+
+## PUT /api/logbook/:id
+1. teacherName must be string and must be non empty
+2. validate classId
+3. validate subjectId
+4. date must be string and must be in yyyy-mm-dd format
+5. Check whether date is a real calendar date
+6. Validate that date is not in the past
+7. topicCovered must be string and must be non empty
+8. homeworkGiven must be string
+9. remarks must be string
+10. Update logbook using Logbook.findByIdAndUpdate()
+
+## DELETE /api/logbook/:id
+1. get id from req.params.id and validate it
+2. delete logbook using Logbook.findByIdAndDelete()
+3. return response
