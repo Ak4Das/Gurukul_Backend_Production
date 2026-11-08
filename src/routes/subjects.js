@@ -116,7 +116,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     const normalizedCode = code.trim().toUpperCase()
 
     // Check duplicate subject code
-    const existingSubject = await Subject.exists({
+    const existingSubject = await Subject.findOne({
       code: normalizedCode,
     })
 
@@ -224,7 +224,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
     const normalizedCode = code.trim().toUpperCase()
 
     // Check duplicate code excluding the current subject
-    const existingSubject = await Subject.exists({
+    const existingSubject = await Subject.findOne({
       code: normalizedCode,
       _id: { $ne: id },
     })

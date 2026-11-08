@@ -10,7 +10,6 @@ import { User } from "../models/User.js"
 import {
   authRequired,
   allowRoles,
-  STAFF_TEACHER,
   STAFF,
 } from "../middleware/auth.js"
 
@@ -70,7 +69,7 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
     }
 
     // Verify that the class exists
-    const classExists = await Class.exists({ _id: classId })
+    const classExists = await Class.findOne({ _id: classId })
 
     if (!classExists) {
       return res.status(404).json({
@@ -230,24 +229,24 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
     // CREATE
     if (!timetableId) {
       // Check whether a timetable already exists for this class
-      const existingTimetable = await Timetable.exists({
+      const existingTimetable = await Timetable.findOne({
         classId,
       })
 
       if (existingTimetable) {
-        return res.status(409).json({
+        return res.status(400).json({
           error: "Timetable already exists for this class",
         })
       }
 
       const doc = await Timetable.create(payload)
 
-      return res.status(201).json(doc)
+      return res.status(200).json(doc)
     }
 
     // UPDATE
     // Verify that the timetable being updated exists
-    const timetableExists = await Timetable.exists({
+    const timetableExists = await Timetable.findOne({
       _id: timetableId,
     })
 
@@ -259,13 +258,13 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
 
     // Check whether another timetable already uses this classId.
     // The current timetable being updated is excluded using $ne.
-    const duplicateTimetable = await Timetable.exists({
+    const duplicateTimetable = await Timetable.findOne({
       classId,
       _id: { $ne: timetableId },
     })
 
     if (duplicateTimetable) {
-      return res.status(409).json({
+      return res.status(400).json({
         error: "Another timetable already exists for this class",
       })
     }
@@ -300,7 +299,7 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
 //! DELETE /api/timetables/:id - Delete timetable
 router.delete(
   "/:classId",
-  allowRoles(...STAFF_TEACHER),
+  allowRoles(...STAFF),
   async (req, res, next) => {
     try {
       if (!isValidObjectId(req.params.classId)) {
