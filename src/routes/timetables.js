@@ -241,7 +241,7 @@ router.post("/:classId", allowRoles(...STAFF), async (req, res, next) => {
 
       const doc = await Timetable.create(payload)
 
-      return res.status(200).json(doc)
+      return res.status(201).json(doc)
     }
 
     // UPDATE
@@ -314,7 +314,7 @@ router.delete(
         return res.status(404).json({ error: "Timetable not found" })
       }
 
-      return res.json({ success: true, id: req.params.id })
+      return res.json({ success: true, classId: req.params.classId })
     } catch (err) {
       return next(err)
     }

@@ -153,8 +153,8 @@ router.post(
   },
 )
 
-//! PUT /users/:id - Update user details
-router.put(
+//! PATCH /users/:id - Update user details
+router.patch(
   "/:id",
   allowRoles("admin"),
   async (req, res, next) => {
@@ -373,8 +373,8 @@ router.post(
   },
 )
 
-//! POST /users/:id/status
-router.post("/:id/status", allowRoles("admin"), async (req, res, next) => {
+//! PATCH /users/:id/status
+router.patch("/:id/status", allowRoles("admin"), async (req, res, next) => {
   try {
     if (!isValidObjectId(req.params.id)) {
       return res.status(400).json({ error: "Invalid user ID format" })

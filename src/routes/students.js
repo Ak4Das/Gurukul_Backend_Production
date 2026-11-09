@@ -521,7 +521,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
     if (!studentObj) {
       await session.abortTransaction()
-      return res.status(400).json({ error: "Student not found" })
+      return res.status(404).json({ error: "Student not found" })
     }
 
     const b = { ...req.body }
