@@ -56,6 +56,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Invalid email address"],
+      unique: true,
     },
     mobile: {
       type: String,
@@ -72,6 +73,7 @@ const userSchema = new mongoose.Schema(
         /^\+[1-9]\d{0,2} \d{5} \d{5}$/,
         "Mobile number must be '+<country code> <Five digit> <Remaining Five digits>' format",
       ],
+      unique: true,
     },
     gender: {
       type: String,

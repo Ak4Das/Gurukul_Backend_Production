@@ -5,8 +5,6 @@ import mongoose from "mongoose"
 import { User } from "../models/User.js"
 // middleware imports
 import { authRequired, allowRoles, STAFF_TEACHER } from "../middleware/auth.js"
-import { SchemaValidation } from "../middleware/SchemaValidation.js"
-import { userSchema } from "../schemas/User.schema.js"
 import bcrypt from "bcryptjs"
 
 const router = Router()
@@ -47,7 +45,6 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
 router.post(
   "/",
   allowRoles("admin"),
-  SchemaValidation(userSchema),
   async (req, res, next) => {
     try {
       const {
@@ -160,7 +157,6 @@ router.post(
 router.put(
   "/:id",
   allowRoles("admin"),
-  SchemaValidation(userSchema),
   async (req, res, next) => {
     try {
       if (!isValidObjectId(req.params.id)) {
