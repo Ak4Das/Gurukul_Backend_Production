@@ -369,12 +369,19 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 
     const { loginPassword, parentPassword, ...others } = req.body
 
-    if (!others.firstName || !others.classId) {
+    if (
+      !others.firstName ||
+      !others.classId ||
+      !others.gender ||
+      !others.dob ||
+      !others.curriculum ||
+      !others.admissionDate ||
+      !others.academicYear ||
+      !others.address
+    ) {
       // Abort the transaction
       await session.abortTransaction()
-      return res
-        .status(400)
-        .json({ error: "Student name and class are required" })
+      return res.status(400).json({ error: "Required fields must be pass" })
     }
 
     if (!isValidObjectId(others.classId)) {
@@ -414,7 +421,7 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
     const credentials = {}
 
     // Auto-create parent from inline parent details
-    if (others.parentName && !student.parentIds.length) {
+    if (others.parentName) {
       let parent = others.parentMobile
         ? await Parent.findOne({ mobile: others.parentMobile }).session(session)
         : null
@@ -505,42 +512,104 @@ router.post("/", allowRoles(...STAFF), async (req, res, next) => {
 })
 
 //! PUT /students/:id - Update student
+
 router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
   let session
+
   try {
+    // Step 1: Validate student ID.
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        error: "Invalid student ID format",
+      })
+    }
+
+    // Step 3: Define fields allowed to be updated.
+    const allowedFields = [
+      "firstName",
+      "lastName",
+      "gender",
+      "dob",
+      "nationality",
+      "curriculum",
+      "allergies",
+      "medicalNotes",
+      "languages",
+      "classId",
+      "admissionDate",
+      "transportRequired",
+      "transportRoute",
+      "academicYear",
+      "status",
+      "address",
+    ]
+
+    // Step 4: Find unexpected fields in req.body.
+    const unexpectedFields = Object.keys(req.body).filter(
+      (field) => !allowedFields.includes(field),
+    )
+
+    // Reject the entire request if unexpected fields are present.
+    if (unexpectedFields.length > 0) {
+      return res.status(400).json({
+        error: "Unexpected field(s) in request body",
+        fields: unexpectedFields,
+      })
+    }
+
+    // Reject an empty update request.
+    if (Object.keys(req.body).length === 0) {
+      return res.status(400).json({
+        error: "At least one field is required to update the student",
+      })
+    }
+
+    // Step 5: Start MongoDB transaction.
     session = await mongoose.startSession()
 
     session.startTransaction()
 
-    if (!isValidObjectId(req.params.id)) {
-      await session.abortTransaction()
-      return res.status(400).json({ error: "Invalid student ID format" })
-    }
-
+    // Step 6: Find the existing student.
     const studentObj = await Student.findById(req.params.id).session(session)
 
     if (!studentObj) {
       await session.abortTransaction()
-      return res.status(404).json({ error: "Student not found" })
+
+      return res.status(404).json({
+        error: "Student not found",
+      })
     }
 
-    const b = { ...req.body }
-    delete b._id
-    delete b.loginPassword
-    delete b.parentPassword
-
+    // Step 7: Copy the validated request body.
+    // Unexpected fields have already been rejected.
     const studentData = {
-      ...b,
+      ...req.body,
     }
 
-    if (b.classId && studentObj.classId.toString() !== b.classId) {
-      const klass = await Class.findById(b.classId).session(session)
+    // Step 8: Validate the class if classId is being changed.
+    if (
+      studentData.classId &&
+      studentObj.classId.toString() !== studentData.classId
+    ) {
+      if (!isValidObjectId(studentData.classId)) {
+        await session.abortTransaction()
+
+        return res.status(400).json({
+          error: "Invalid class ID format",
+        })
+      }
+
+      const klass = await Class.findById(studentData.classId).session(session)
 
       if (!klass) {
         await session.abortTransaction()
-        return res.status(400).json({ error: "Please select a valid class" })
+
+        return res.status(400).json({
+          error: "Please select a valid class",
+        })
       }
 
+      // Generate a new roll number for the selected class.
       const rollNo = await nextSeq(
         `${klass.name}${klass.section} - roll`,
         session,
@@ -549,6 +618,7 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
       studentData.rollNo = rollNo
     }
 
+    // Step 9: Update the Student document.
     const updatedStudent = await Student.findByIdAndUpdate(
       req.params.id,
       studentData,
@@ -560,36 +630,66 @@ router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
 
     if (!updatedStudent) {
       await session.abortTransaction()
-      return res.status(404).json({ error: "Student not found" })
+
+      return res.status(404).json({
+        error: "Student not found",
+      })
     }
 
+    // Step 10: Update the corresponding student User document.
     await User.findOneAndUpdate(
-      { refId: req.params.id },
       {
-        fullName: b.firstName && `${b.firstName} ${b.lastName || ""}`.trim(),
-        status: b.status,
-        gender: b.gender,
-        address: b.address,
-        dob: b.dob,
-        joined: b.admissionDate,
+        role: "student",
+        refId: req.params.id,
+      },
+      {
+        ...(studentData.firstName !== undefined && {
+          fullName:
+            `${studentData.firstName} ${studentData.lastName ?? studentObj.lastName ?? ""}`.trim(),
+        }),
+
+        ...(studentData.status !== undefined && {
+          status: studentData.status,
+        }),
+
+        ...(studentData.gender !== undefined && {
+          gender: studentData.gender,
+        }),
+
+        ...(studentData.address !== undefined && {
+          address: studentData.address,
+        }),
+
+        ...(studentData.dob !== undefined && {
+          dob: studentData.dob,
+        }),
+
+        ...(studentData.admissionDate !== undefined && {
+          joined: studentData.admissionDate,
+        }),
       },
       {
         returnDocument: "after",
         runValidators: true,
+        session,
       },
-    ).session(session)
+    )
 
+    // Step 11: Commit the transaction.
     await session.commitTransaction()
 
-    return res.json(updatedStudent)
+    // Step 12: Return the updated student.
+    return res.status(200).json(updatedStudent)
   } catch (err) {
-    if (session.inTransaction()) {
+    if (session?.inTransaction()) {
       await session.abortTransaction()
     }
 
     return next(err)
   } finally {
-    await session.endSession()
+    if (session) {
+      await session.endSession()
+    }
   }
 })
 
