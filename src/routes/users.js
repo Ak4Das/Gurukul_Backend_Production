@@ -6,6 +6,9 @@ import { User } from "../models/User.js"
 // middleware imports
 import { authRequired, allowRoles, STAFF_TEACHER } from "../middleware/auth.js"
 import bcrypt from "bcryptjs"
+import { SchemaValidation } from "../middleware/SchemaValidation.js"
+import { userCreateSchema } from "../schema/UserCreate.schema.js"
+import { userPatchSchema } from "../schema/UserUpdate.schema.js"
 
 const router = Router()
 
@@ -45,6 +48,7 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
 router.post(
   "/",
   allowRoles("admin"),
+  SchemaValidation(userCreateSchema),
   async (req, res, next) => {
     try {
       const {
@@ -74,50 +78,6 @@ router.post(
       const normalizedEmail = email ? email.toLowerCase().trim() : ""
       const normalizedMobile = mobile ? mobile.trim() : ""
 
-      // Roles for which email and mobile must be unique
-      const uniqueContactRoles = [
-        "admin",
-        "clerk",
-        "supervisor",
-        "teacher",
-        "parent",
-      ]
-
-      // Check duplicate username
-      const existingUser = await User.findOne({
-        username: normalizedUsername,
-      })
-      if (existingUser) {
-        return res.status(400).json({
-          error: `Username "${normalizedUsername}" is already exist`,
-        })
-      }
-
-      // Check email and mobile uniqueness only for selected roles
-      if (uniqueContactRoles.includes(role)) {
-        if (normalizedEmail) {
-          const existingEmail = await User.findOne({
-            email: normalizedEmail,
-          })
-          if (existingEmail) {
-            return res.status(400).json({
-              error: `Email "${normalizedEmail}" is already registered`,
-            })
-          }
-        }
-
-        if (normalizedMobile) {
-          const existingMobile = await User.findOne({
-            mobile: normalizedMobile,
-          })
-          if (existingMobile) {
-            return res.status(400).json({
-              error: `Mobile number "${normalizedMobile}" is already registered`,
-            })
-          }
-        }
-      }
-
       // Base user data
       const userData = {
         username: normalizedUsername,
@@ -128,8 +88,8 @@ router.post(
         status,
         dob: dob ? dob : "",
         address: address ? address : "",
-        ...(qualification ? { qualification } : {}),
-        ...(specialization ? { specialization } : {}),
+        ...(qualification ? { qualification: qualification.trim() } : {}),
+        ...(specialization ? { specialization: specialization.trim() } : {}),
         ...(joined ? { joined } : {}),
       }
 
@@ -147,8 +107,19 @@ router.post(
       const newUser = await User.create(userData)
 
       return res.status(201).json(newUser.toPublicJSON())
-    } catch (err) {
-      return next(err)
+    } catch (error) {
+      if (error?.code === 11000) {
+        const field = Object.keys(error.keyPattern || error.keyValue || {})[0]
+        return res.status(400).json({
+          error: field ? `${field} must be unique` : "Duplicate record",
+        })
+      }
+
+      if (error?.name === "ValidationError" || error?.name === "CastError") {
+        return res.status(400).json({ error: error.message })
+      }
+
+      return next(error)
     }
   },
 )
@@ -157,10 +128,18 @@ router.post(
 router.patch(
   "/:id",
   allowRoles("admin"),
+  SchemaValidation(userPatchSchema),
   async (req, res, next) => {
     try {
       if (!isValidObjectId(req.params.id)) {
         return res.status(400).json({ error: "Invalid user ID format" })
+      }
+
+      // Reject an empty update request.
+      if (Object.keys(req.body).length === 0) {
+        return res.status(400).json({
+          error: "At least one field is required to update the user",
+        })
       }
 
       const user = await User.findById(req.params.id)
@@ -185,32 +164,19 @@ router.patch(
         joined,
       } = req.body
 
-      // Roles for which email and mobile must be unique
-      const uniqueContactRoles = [
-        "admin",
-        "clerk",
-        "supervisor",
-        "teacher",
-        "parent",
-      ]
-
       // Determine the role after this update
       const finalRole = role !== undefined ? role : user.role
 
-      // Check duplicate username if username is changing
-      if (username) {
-        const normalizedUsername = username.toLowerCase().trim()
-        if (normalizedUsername !== user.username) {
-          const duplicateUser = await User.findOne({
-            username: normalizedUsername,
-          })
-          if (duplicateUser) {
-            return res.status(400).json({
-              error: `Username "${normalizedUsername}" is already taken`,
-            })
-          }
+      if (finalRole === "student") {
+        delete user.email
+        delete user.mobile
+      } else {
+        if (email !== undefined) {
+          user.email = email.toLowerCase().trim()
+        }
 
-          user.username = normalizedUsername
+        if (mobile !== undefined) {
+          user.mobile = mobile.trim()
         }
       }
 
@@ -218,52 +184,8 @@ router.patch(
         user.fullName = fullName.trim()
       }
 
-      // Normalize email before comparison
-      const normalizedEmail =
-        email !== undefined ? email.toLowerCase().trim() : undefined
-
-      // Normalize mobile before comparison
-      const normalizedMobile = mobile !== undefined ? mobile.trim() : undefined
-
-      if (finalRole === "student") {
-        delete user.email
-        delete user.mobile
-      } else {
-        if (
-          normalizedEmail !== undefined &&
-          normalizedEmail !== user.email &&
-          uniqueContactRoles.includes(finalRole)
-        ) {
-          const duplicateEmail = await User.findOne({
-            email: normalizedEmail,
-          })
-
-          if (duplicateEmail) {
-            return res.status(400).json({
-              error: `Email "${normalizedEmail}" is already registered`,
-            })
-          }
-
-          user.email = normalizedEmail
-        }
-
-        if (
-          normalizedMobile !== undefined &&
-          normalizedMobile !== user.mobile &&
-          uniqueContactRoles.includes(finalRole)
-        ) {
-          const duplicateMobile = await User.findOne({
-            mobile: normalizedMobile,
-          })
-
-          if (duplicateMobile) {
-            return res.status(400).json({
-              error: `Mobile number "${normalizedMobile}" is already registered`,
-            })
-          }
-
-          user.mobile = normalizedMobile
-        }
+      if (username !== undefined) {
+        user.username = username.toLowerCase().trim()
       }
 
       if (gender !== undefined) {
@@ -306,8 +228,19 @@ router.patch(
       await user.save()
 
       return res.json(user.toPublicJSON())
-    } catch (err) {
-      return next(err)
+    } catch (error) {
+      if (error?.code === 11000) {
+        const field = Object.keys(error.keyPattern || error.keyValue || {})[0]
+        return res.status(400).json({
+          error: field ? `${field} must be unique` : "Duplicate record",
+        })
+      }
+
+      if (error?.name === "ValidationError" || error?.name === "CastError") {
+        return res.status(400).json({ error: error.message })
+      }
+
+      return next(error)
     }
   },
 )
