@@ -128,7 +128,7 @@ const studentSchema = new mongoose.Schema(
     // Languages spoken by the student.
     languages: {
       type: String,
-      default: "",
+      default: "English",
       required: [true, "Languages are required"],
       trim: true,
       maxlength: [100, "Languages cannot exceed 100 characters"],

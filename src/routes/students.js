@@ -20,6 +20,10 @@ import {
   STAFF_TEACHER,
 } from "../middleware/auth.js"
 import { Class } from "../models/Class.js"
+import { SchemaValidation } from "../middleware/SchemaValidation.js"
+import { studentCreateSchema } from "../schema/Students.schema.js"
+import { studentUpdateSchema } from "../schema/StudentsUpdate.schema.js"
+import { Settings } from "../models/Settings.js"
 
 const router = Router()
 router.use(authRequired)
@@ -51,15 +55,6 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
       sortBy = "admissionNo",
       sortOrder = "asc",
     } = req.query
-
-    // Pagination
-    const requestedPage = Math.max(1, Number.parseInt(pageParam, 10) || 1)
-    const allowedPageSizes = [10, 25, 50, 100]
-    let limit = Number.parseInt(limitParam, 10) || 10
-
-    if (!allowedPageSizes.includes(limit)) {
-      limit = 10
-    }
 
     // Validate filters
     const allowedStatuses = [
@@ -104,6 +99,7 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
     }
 
     // "\\S" => string containing at least one non-whitespace character.
+    // $regex and $options are MongoDB query operators.
     if (hasAllergies === "true") {
       baseMatch.allergies = {
         $regex: "\\S",
@@ -124,33 +120,27 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
       ? new RegExp(escapeRegex(searchText), "i")
       : null
 
-    // Allowed sorting fields
-    // here classId is mapped to className because the UI displays the human-readable class name rather than the ObjectId.
-    const sortFields = {
-      admissionNo: "admissionNo",
-      firstName: "firstName",
-      lastName: "lastName",
-      gender: "gender",
-      nationality: "nationality",
-      curriculum: "curriculum",
-      classId: "className",
-      status: "status",
-      allergies: "allergies",
-      rollNo: "rollNo",
-      academicYear: "academicYear",
-      admissionDate: "admissionDate",
-      dob: "dob",
-      transportRequired: "transportRequired",
-    }
-
-    const sortField = sortFields[sortBy] || "admissionNo"
-
-    const sortDirection = sortOrder === "desc" ? -1 : 1
-
     // Aggregation pipeline
     const pipeline = [
       {
-        $match: baseMatch,
+        $match: searchRegex
+          ? {
+              ...baseMatch,
+              $or: [
+                { admissionNo: searchRegex }, // Does searchRegex occur anywhere inside admissionNo, case-insensitively?
+                { firstName: searchRegex },
+                { lastName: searchRegex },
+                { rollNo: searchRegex },
+                { nationality: searchRegex },
+                { curriculum: searchRegex },
+                { academicYear: searchRegex },
+                { languages: searchRegex },
+                { address: searchRegex },
+                { allergies: searchRegex },
+                { className: searchRegex },
+              ],
+            }
+          : baseMatch,
       },
 
       // My Student collection contains a classId reference, while the actual class name and section are stored in the Class collection.
@@ -183,7 +173,7 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
                 // We use input because MongoDB's $trim operator requires us to specify which string it should remove whitespace from.
                 $concat: [
                   // $concat joins strings together.
-                  { $ifNull: ["$classInfo.name", ""] }, // Use $classInfo.name if it is not null or missing. Otherwise, use an empty string.
+                  { $ifNull: ["$classInfo.name", ""] }, // Use $classInfo.name if it is not null, undefined or missing. Otherwise, use an empty string.
                   " ",
                   { $ifNull: ["$classInfo.section", ""] },
                 ],
@@ -194,31 +184,41 @@ router.get("/", allowRoles(...STAFF_TEACHER), async (req, res, next) => {
       },
     ]
 
-    // Include Search in pipeline
-    if (searchRegex) {
-      pipeline.push({
-        $match: {
-          $or: [
-            { admissionNo: searchRegex },
-            { firstName: searchRegex },
-            { lastName: searchRegex },
-            { rollNo: searchRegex },
-            { nationality: searchRegex },
-            { curriculum: searchRegex },
-            { academicYear: searchRegex },
-            { languages: searchRegex },
-            { address: searchRegex },
-            { allergies: searchRegex },
-            { className: searchRegex },
-          ],
-        },
-      })
+    // Allowed sorting fields
+    // here classId is mapped to className because the UI displays the human-readable class name rather than the ObjectId.
+    const sortFields = {
+      admissionNo: "admissionNo",
+      firstName: "firstName",
+      lastName: "lastName",
+      gender: "gender",
+      nationality: "nationality",
+      curriculum: "curriculum",
+      classId: "className",
+      status: "status",
+      allergies: "allergies",
+      rollNo: "rollNo",
+      academicYear: "academicYear",
+      admissionDate: "admissionDate",
+      dob: "dob",
+      transportRequired: "transportRequired",
     }
+
+    const sortField = sortFields[sortBy] || "admissionNo"
+
+    const sortDirection = sortOrder === "desc" ? -1 : 1
 
     // Status-specific pipeline stages
     const statusStages = status ? [{ $match: { status } }] : []
 
     // Pagination
+    const requestedPage = Math.max(1, Number.parseInt(pageParam, 10) || 1)
+    const allowedPageSizes = [10, 25, 50, 100]
+    let limit = Number.parseInt(limitParam, 10) || 10
+
+    if (!allowedPageSizes.includes(limit)) {
+      limit = 10
+    }
+
     const skip = (requestedPage - 1) * limit
 
     pipeline.push({
@@ -354,344 +354,322 @@ router.get("/:id", async (req, res, next) => {
 })
 
 //! POST /students - Create student & credentials
-router.post("/", allowRoles(...STAFF), async (req, res, next) => {
-  let session
-  try {
-    // This creates a MongoDB session.
-    // A session allows multiple database operations to participate in a single transaction.
-    // Suppose the student and parent are created successfully, but creating the student's login account fails.
-    // Without a transaction, some documents might remain in the database even though the complete operation failed.
-    // A transaction helps prevent this partial creation.
-    session = await mongoose.startSession()
+router.post(
+  "/",
+  allowRoles(...STAFF),
+  SchemaValidation(studentCreateSchema),
+  async (req, res, next) => {
+    let session
+    try {
+      // This creates a MongoDB session.
+      // A session allows multiple database operations to participate in a single transaction.
+      // Suppose the student and parent are created successfully, but creating the student's login account fails.
+      // Without a transaction, some documents might remain in the database even though the complete operation failed.
+      // A transaction helps prevent this partial creation.
+      session = await mongoose.startSession()
 
-    // Starts a transaction.
-    session.startTransaction()
+      // Starts a transaction.
+      session.startTransaction()
 
-    const { loginPassword, parentPassword, ...others } = req.body
+      const { loginPassword, parentPassword, ...others } = req.body
 
-    if (
-      !others.firstName ||
-      !others.classId ||
-      !others.gender ||
-      !others.dob ||
-      !others.curriculum ||
-      !others.admissionDate ||
-      !others.academicYear ||
-      !others.address
-    ) {
-      // Abort the transaction
-      await session.abortTransaction()
-      return res.status(400).json({ error: "Required fields must be pass" })
-    }
-
-    if (!isValidObjectId(others.classId)) {
-      // Abort the transaction
-      await session.abortTransaction()
-      return res.status(400).json({ error: "Invalid class ID format" })
-    }
-
-    const year = new Date().getFullYear()
-    const seq = await nextSeq("admissionNo", session)
-    const admissionNo = `${year}-${String(seq).padStart(8, "0")}`
-
-    // starting a session does not automatically make every database operation part of that session.
-    // You generally need to pass the session to database operations explicitly.
-    // The .session(session) call associates this database operation with the current session.
-    // transaction ke andar kiye gaye reads ko bhi usi session se associate karna, taaki woh transaction ke context mein execute hon.
-    const klass = await Class.findById(others.classId).session(session)
-    if (!klass) {
-      await session.abortTransaction()
-      return res.status(400).json({ error: "Please select a valid class" })
-    }
-    const rollNo = await nextSeq(
-      `${klass.name}${klass.section} - roll`,
-      session,
-    )
-
-    const studentData = {
-      ...others,
-      admissionNo,
-      rollNo,
-      parentIds: [],
-    }
-
-    const student = new Student(studentData)
-    await student.save({ session })
-
-    const credentials = {}
-
-    // Auto-create parent from inline parent details
-    if (others.parentName) {
-      let parent = others.parentMobile
-        ? await Parent.findOne({ mobile: others.parentMobile }).session(session)
-        : null
-
-      if (!parent) {
-        parent = new Parent({
-          name: others.parentName,
-          relation: others.parentRelation || "Guardian",
-          mobile: others.parentMobile || "",
-          email: others.parentEmail || "",
-          occupation: others.parentOccupation || "",
-          address: others.address || "",
-          status: "active",
-        })
-
-        await parent.save({ session })
-
-        const pSeq = await nextSeq("parentUser", session)
-        const pUsername = `parent${pSeq}`
-        const pPassword = parentPassword || "parent123"
-
-        const parentUser = new User({
-          username: pUsername,
-          fullName: parent.name,
-          role: "parent",
-          status: "active",
-          refId: parent._id,
-          mobile: parent.mobile,
-          email: parent.email,
-          passwordHash: pPassword, // Handled by User pre-save hook
-          address: others.address || "",
-          gender:
-            others.parentRelation === "Father"
-              ? "Male"
-              : others.parentRelation === "Mother"
-                ? "Female"
-                : "",
-        })
-
-        await parentUser.save({ session })
-
-        credentials.parentUsername = pUsername
-        credentials.parentPassword = pPassword
-      }
-
-      student.parentIds = [parent._id]
-      await student.save({ session })
-    }
-
-    // Student login account
-    const sSeq = await nextSeq("studentUser", session)
-    const sUsername = `student${sSeq}`
-    const sPassword = loginPassword || "student123"
-
-    const studentUser = new User({
-      username: sUsername,
-      fullName: `${others.firstName} ${others.lastName || ""}`.trim(),
-      role: "student",
-      status: "active",
-      refId: student._id,
-      passwordHash: sPassword, // Handled by User pre-save hook
-      gender: others.gender,
-      address: others.address,
-      dob: others.dob,
-      joined: others.admissionDate,
-    })
-
-    await studentUser.save({ session })
-
-    credentials.studentUsername = sUsername
-    credentials.studentPassword = sPassword
-
-    // Commits the transaction, making its changes permanent.
-    await session.commitTransaction()
-
-    return res.status(201).json({ ...student.toObject(), credentials })
-  } catch (err) {
-    // session.inTransaction() is a Mongoose method that checks whether the current MongoDB session has an active transaction.
-    if (session.inTransaction()) {
-      // Aborts the transaction, discarding its uncommitted database changes.
-      await session.abortTransaction()
-    }
-
-    return next(err)
-  } finally {
-    await session.endSession()
-  }
-})
-
-//! PUT /students/:id - Update student
-
-router.put("/:id", allowRoles(...STAFF), async (req, res, next) => {
-  let session
-
-  try {
-    // Step 1: Validate student ID.
-    if (!isValidObjectId(req.params.id)) {
-      return res.status(400).json({
-        error: "Invalid student ID format",
-      })
-    }
-
-    // Step 3: Define fields allowed to be updated.
-    const allowedFields = [
-      "firstName",
-      "lastName",
-      "gender",
-      "dob",
-      "nationality",
-      "curriculum",
-      "allergies",
-      "medicalNotes",
-      "languages",
-      "classId",
-      "admissionDate",
-      "transportRequired",
-      "transportRoute",
-      "academicYear",
-      "status",
-      "address",
-    ]
-
-    // Step 4: Find unexpected fields in req.body.
-    const unexpectedFields = Object.keys(req.body).filter(
-      (field) => !allowedFields.includes(field),
-    )
-
-    // Reject the entire request if unexpected fields are present.
-    if (unexpectedFields.length > 0) {
-      return res.status(400).json({
-        error: "Unexpected field(s) in request body",
-        fields: unexpectedFields,
-      })
-    }
-
-    // Reject an empty update request.
-    if (Object.keys(req.body).length === 0) {
-      return res.status(400).json({
-        error: "At least one field is required to update the student",
-      })
-    }
-
-    // Step 5: Start MongoDB transaction.
-    session = await mongoose.startSession()
-
-    session.startTransaction()
-
-    // Step 6: Find the existing student.
-    const studentObj = await Student.findById(req.params.id).session(session)
-
-    if (!studentObj) {
-      await session.abortTransaction()
-
-      return res.status(404).json({
-        error: "Student not found",
-      })
-    }
-
-    // Step 7: Copy the validated request body.
-    // Unexpected fields have already been rejected.
-    const studentData = {
-      ...req.body,
-    }
-
-    // Step 8: Validate the class if classId is being changed.
-    if (
-      studentData.classId &&
-      studentObj.classId.toString() !== studentData.classId
-    ) {
-      if (!isValidObjectId(studentData.classId)) {
+      if (
+        !others.firstName ||
+        !others.classId ||
+        !others.gender ||
+        !others.dob ||
+        !others.curriculum ||
+        !others.admissionDate ||
+        !others.academicYear ||
+        !others.address
+      ) {
+        // Abort the transaction
         await session.abortTransaction()
-
-        return res.status(400).json({
-          error: "Invalid class ID format",
-        })
+        return res.status(400).json({ error: "Required fields must be pass" })
       }
 
-      const klass = await Class.findById(studentData.classId).session(session)
+      if (!isValidObjectId(others.classId)) {
+        // Abort the transaction
+        await session.abortTransaction()
+        return res.status(400).json({ error: "Invalid class ID format" })
+      }
 
+      const year = new Date().getFullYear()
+      const seq = await nextSeq("admissionNo", session)
+      const admissionNo = `${year}-${String(seq).padStart(8, "0")}`
+
+      // starting a session does not automatically make every database operation part of that session.
+      // You generally need to pass the session to database operations explicitly.
+      // The .session(session) call associates this database operation with the current session.
+      // transaction ke andar kiye gaye reads ko bhi usi session se associate karna, taaki woh transaction ke context mein execute hon.
+      const klass = await Class.findById(others.classId).session(session)
       if (!klass) {
         await session.abortTransaction()
-
-        return res.status(400).json({
-          error: "Please select a valid class",
-        })
+        return res.status(400).json({ error: "Please select a valid class" })
       }
-
-      // Generate a new roll number for the selected class.
       const rollNo = await nextSeq(
         `${klass.name}${klass.section} - roll`,
         session,
       )
 
-      studentData.rollNo = rollNo
-    }
+      const studentData = {
+        ...others,
+        admissionNo,
+        rollNo,
+        parentIds: [],
+      }
 
-    // Step 9: Update the Student document.
-    const updatedStudent = await Student.findByIdAndUpdate(
-      req.params.id,
-      studentData,
-      {
-        returnDocument: "after",
-        runValidators: true,
-      },
-    ).session(session)
+      const student = new Student(studentData)
+      await student.save({ session })
 
-    if (!updatedStudent) {
-      await session.abortTransaction()
+      const credentials = {}
 
-      return res.status(404).json({
-        error: "Student not found",
-      })
-    }
+      // Auto-create parent from inline parent details
+      if (others.parentName) {
+        let parent = others.parentMobile
+          ? await Parent.findOne({ mobile: others.parentMobile }).session(
+              session,
+            )
+          : null
 
-    // Step 10: Update the corresponding student User document.
-    await User.findOneAndUpdate(
-      {
+        if (!parent) {
+          parent = new Parent({
+            name: others.parentName,
+            relation: others.parentRelation || "Guardian",
+            mobile: others.parentMobile || "",
+            email: others.parentEmail || "",
+            occupation: others.parentOccupation || "",
+            address: others.address || "",
+            status: "active",
+          })
+
+          await parent.save({ session })
+
+          const pSeq = await nextSeq("parentUser", session)
+          const pUsername = `parent${pSeq}`
+          const pPassword = parentPassword || "parent123"
+
+          const parentUser = new User({
+            username: pUsername,
+            fullName: parent.name,
+            role: "parent",
+            status: "active",
+            refId: parent._id,
+            mobile: parent.mobile,
+            email: parent.email,
+            passwordHash: pPassword, // Handled by User pre-save hook
+            address: others.address || "",
+            gender:
+              others.parentRelation === "Father"
+                ? "Male"
+                : others.parentRelation === "Mother"
+                  ? "Female"
+                  : "",
+          })
+
+          await parentUser.save({ session })
+
+          credentials.parentUsername = pUsername
+          credentials.parentPassword = pPassword
+        }
+
+        student.parentIds = [parent._id]
+        await student.save({ session })
+      }
+
+      // Student login account
+      const sSeq = await nextSeq("studentUser", session)
+      const sUsername = `student${sSeq}`
+      const sPassword = loginPassword || "student123"
+
+      const studentUser = new User({
+        username: sUsername,
+        fullName: `${others.firstName} ${others.lastName || ""}`.trim(),
         role: "student",
-        refId: req.params.id,
-      },
-      {
-        ...(studentData.firstName !== undefined && {
-          fullName:
-            `${studentData.firstName} ${studentData.lastName ?? studentObj.lastName ?? ""}`.trim(),
-        }),
+        status: "active",
+        refId: student._id,
+        passwordHash: sPassword, // Handled by User pre-save hook
+        gender: others.gender,
+        address: others.address,
+        dob: others.dob,
+        joined: others.admissionDate,
+      })
 
-        ...(studentData.status !== undefined && {
-          status: studentData.status,
-        }),
+      await studentUser.save({ session })
 
-        ...(studentData.gender !== undefined && {
-          gender: studentData.gender,
-        }),
+      credentials.studentUsername = sUsername
+      credentials.studentPassword = sPassword
 
-        ...(studentData.address !== undefined && {
-          address: studentData.address,
-        }),
+      // Commits the transaction, making its changes permanent.
+      await session.commitTransaction()
 
-        ...(studentData.dob !== undefined && {
-          dob: studentData.dob,
-        }),
+      return res.status(201).json({ ...student.toObject(), credentials })
+    } catch (err) {
+      // session.inTransaction() is a Mongoose method that checks whether the current MongoDB session has an active transaction.
+      if (session.inTransaction()) {
+        // Aborts the transaction, discarding its uncommitted database changes.
+        await session.abortTransaction()
+      }
 
-        ...(studentData.admissionDate !== undefined && {
-          joined: studentData.admissionDate,
-        }),
-      },
-      {
-        returnDocument: "after",
-        runValidators: true,
-        session,
-      },
-    )
-
-    // Step 11: Commit the transaction.
-    await session.commitTransaction()
-
-    // Step 12: Return the updated student.
-    return res.status(200).json(updatedStudent)
-  } catch (err) {
-    if (session?.inTransaction()) {
-      await session.abortTransaction()
-    }
-
-    return next(err)
-  } finally {
-    if (session) {
+      return next(err)
+    } finally {
       await session.endSession()
     }
-  }
-})
+  },
+)
+
+//! PUT /students/:id - Update student
+router.put(
+  "/:id",
+  allowRoles(...STAFF),
+  SchemaValidation(studentUpdateSchema),
+  async (req, res, next) => {
+    let session
+
+    try {
+      // Step 1: Validate student ID.
+      if (!isValidObjectId(req.params.id)) {
+        return res.status(400).json({
+          error: "Invalid student ID format",
+        })
+      }
+
+      // Reject an empty update request.
+      if (Object.keys(req.body).length === 0) {
+        return res.status(400).json({
+          error: "At least one field is required to update the student",
+        })
+      }
+
+      // Step 5: Start MongoDB transaction.
+      session = await mongoose.startSession()
+
+      session.startTransaction()
+
+      // Step 6: Find the existing student.
+      const studentObj = await Student.findById(req.params.id).session(session)
+
+      if (!studentObj) {
+        await session.abortTransaction()
+
+        return res.status(404).json({
+          error: "Student not found",
+        })
+      }
+
+      // Step 7: Copy the validated request body.
+      // Unexpected fields have already been rejected.
+      const studentData = {
+        ...req.body,
+      }
+
+      // Step 8: Validate the class if classId is being changed.
+      if (
+        studentData.classId &&
+        studentObj.classId.toString() !== studentData.classId
+      ) {
+        if (!isValidObjectId(studentData.classId)) {
+          await session.abortTransaction()
+
+          return res.status(400).json({
+            error: "Invalid class ID format",
+          })
+        }
+
+        const klass = await Class.findById(studentData.classId).session(session)
+
+        if (!klass) {
+          await session.abortTransaction()
+
+          return res.status(400).json({
+            error: "Please select a valid class",
+          })
+        }
+
+        // Generate a new roll number for the selected class.
+        const rollNo = await nextSeq(
+          `${klass.name}${klass.section} - roll`,
+          session,
+        )
+
+        studentData.rollNo = rollNo
+      }
+
+      // Step 9: Update the Student document.
+      const updatedStudent = await Student.findByIdAndUpdate(
+        req.params.id,
+        studentData,
+        {
+          returnDocument: "after",
+          runValidators: true,
+        },
+      ).session(session)
+
+      if (!updatedStudent) {
+        await session.abortTransaction()
+
+        return res.status(404).json({
+          error: "Student not found",
+        })
+      }
+
+      // Step 10: Update the corresponding student User document.
+      await User.findOneAndUpdate(
+        {
+          role: "student",
+          refId: req.params.id,
+        },
+        {
+          ...(studentData.firstName !== undefined && {
+            fullName:
+              `${studentData.firstName} ${studentData.lastName ?? studentObj.lastName ?? ""}`.trim(),
+          }),
+
+          ...(studentData.status !== undefined && {
+            status: studentData.status,
+          }),
+
+          ...(studentData.gender !== undefined && {
+            gender: studentData.gender,
+          }),
+
+          ...(studentData.address !== undefined && {
+            address: studentData.address,
+          }),
+
+          ...(studentData.dob !== undefined && {
+            dob: studentData.dob,
+          }),
+
+          ...(studentData.admissionDate !== undefined && {
+            joined: studentData.admissionDate,
+          }),
+        },
+        {
+          returnDocument: "after",
+          runValidators: true,
+          session,
+        },
+      )
+
+      // Step 11: Commit the transaction.
+      await session.commitTransaction()
+
+      // Step 12: Return the updated student.
+      return res.status(200).json(updatedStudent)
+    } catch (err) {
+      if (session?.inTransaction()) {
+        await session.abortTransaction()
+      }
+
+      return next(err)
+    } finally {
+      if (session) {
+        await session.endSession()
+      }
+    }
+  },
+)
 
 //! GET /students/:id/fees - Fee summary
 router.get(
@@ -709,8 +687,11 @@ router.get(
         return res.status(404).json({ error: "Student not found" })
       }
 
+      const doc = await Settings.findOne({ key: "school" }).lean()
+
       const receipts = await FeeReceipt.find({
         studentId: req.params.id,
+        academicYear: doc.value.academicYear,
       }).sort({
         date: -1,
       })
@@ -743,6 +724,12 @@ router.get(
         })
       }
 
+      const student = await Student.findById(id)
+
+      if (!student) {
+        return res.status(404).json({ error: "Student not found" })
+      }
+
       // Build the date filter.
       const match = {}
 
@@ -763,6 +750,7 @@ router.get(
         {
           $match: {
             ...match,
+            classId: student.classId,
             "records.studentId": new mongoose.Types.ObjectId(id),
           },
         },
@@ -979,20 +967,22 @@ router.delete("/:id", allowRoles("admin"), async (req, res, next) => {
       return res.status(400).json({ error: "Invalid student ID format" })
     }
 
+    const student = await Student.findById(req.params.id)
+    
+    if (!student) {
+      await session.abortTransaction()
+      return res.status(404).json({ error: "Student not found" })
+    }
+
     await Student.findByIdAndDelete(req.params.id, { session })
 
-    const student = await User.findOneAndDelete(
+    await User.findOneAndDelete(
       {
         role: "student",
         refId: req.params.id,
       },
       { session },
     )
-
-    if (!student) {
-      await session.abortTransaction()
-      return res.status(400).json({ error: "Student not found" })
-    }
 
     await session.commitTransaction()
 

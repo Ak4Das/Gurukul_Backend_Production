@@ -43,20 +43,21 @@ app.use(
     optionSuccessStatus: 200,
   }),
 )
-app.use(express.json())
+
+//! Express incoming HTTP requests JSON body maximum size is 100 KB. if exceeds 100 KB then this middleware reject the request
+app.use(express.json({ limit: "100kb" }))
 
 //! Disable query buffering so queries fail fast if DB not connected yet or disconnects (prevents 10s hang)
 /* default is mongoose.set("bufferCommands", true) means, 
 User.find() (or any db query) -> MongoDB not connected -> Query stored temporarily (~10s) in queue -> MongoDB connect -> Execute query */
 mongoose.set("bufferCommands", false)
 
-//! API HEALTH ROUTE
+//! Server health check
 app.get("/api/health", (req, res) => {
   const isDbConnected = mongoose.connection.readyState === 1
   res.status(isDbConnected ? 200 : 503).json({
     ok: isDbConnected,
     dbStatus: isDbConnected ? "connected" : "disconnected",
-    driver: "mongoose",
   })
 })
 
