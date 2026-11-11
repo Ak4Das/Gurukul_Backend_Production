@@ -40,7 +40,7 @@ router.post("/login", async (req, res, next) => {
         .json({ error: "Account suspended. Contact administrator." })
     }
 
-    const isPasswordValid = await user.comparePassword(password)
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash)
     if (!isPasswordValid) {
       return res.status(401).json({ error: "Invalid username or password" })
     }
@@ -123,7 +123,10 @@ router.post("/change-password", authRequired, async (req, res, next) => {
       return res.status(404).json({ error: "User not found" })
     }
 
-    const isPasswordValid = await user.comparePassword(currentPassword || "")
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    )
     if (!isPasswordValid) {
       return res.status(400).json({ error: "Current password is incorrect" })
     }

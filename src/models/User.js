@@ -165,11 +165,6 @@ userSchema.pre("save", async function () {
   }
 })
 
-// This method to compare password will be accessible to each individual Mongoose document which are created using User model
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.passwordHash)
-}
-
 // Transform method to omit sensitive fields when returning JSON
 userSchema.methods.toPublicJSON = function () {
   const obj = this.toObject()
