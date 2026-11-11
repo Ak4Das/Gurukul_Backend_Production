@@ -30,7 +30,7 @@ router.put("/", allowRoles("admin"), async (req, res, next) => {
     const doc = await Settings.findOneAndUpdate(
       { key: "school" },
       { $set: { value: updatedValue } },
-      { returnDocument: "after", upsert: true },
+      { returnDocument: "after", runValidators: true, upsert: true },
     ).lean()
 
     return res.json(doc.value)
