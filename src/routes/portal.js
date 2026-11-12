@@ -14,6 +14,7 @@ import { Notice } from "../models/Notice.js"
 import { Ptm } from "../models/Ptm.js"
 // middleware imports
 import { authRequired, allowRoles } from "../middleware/auth.js"
+import { Settings } from "../models/Settings.js"
 
 const router = Router()
 router.use(authRequired)
@@ -24,12 +25,22 @@ function isValidObjectId(id) {
 
 // Student Snapshot Helper Function
 async function studentSnapshot(studentId) {
-  if (!isValidObjectId(studentId)) return null
+  if (!isValidObjectId(studentId)) {
+    return null
+  }
 
   const student = await Student.findById(studentId).lean()
-  if (!student) return null
+  if (!student) {
+    return null
+  }
 
   const classId = student.classId
+
+  const doc = await Settings.findOne({ key: "school" }).lean()
+
+  if (!doc) {
+    console.log("School settings not found")
+  }
 
   // Fetch related records concurrently
   const [cls, allAttendance, sheets, exams, subjects, receipts] =
@@ -42,11 +53,16 @@ async function studentSnapshot(studentId) {
           }).lean()
         : [],
       classId
-        ? Mark.find({ classId: classId, status: "published" }).lean()
+        ? Mark.find({
+            classId: classId,
+            status: "published",
+            "entries.studentId": student._id,
+          }).lean()
         : [],
       classId
         ? Exam.find({
             classIds: classId,
+            academicYear: doc.value.academicYear,
           }).lean()
         : [],
       classId
@@ -54,7 +70,9 @@ async function studentSnapshot(studentId) {
             classIds: classId,
           }).lean()
         : [],
-      FeeReceipt.find({ studentId }).sort({ date: -1 }).lean(),
+      FeeReceipt.find({ studentId, academicYear: doc.value.academicYear })
+        .sort({ date: -1 })
+        .lean(),
     ])
 
   // Attendance summary calculation
@@ -72,6 +90,7 @@ async function studentSnapshot(studentId) {
       recent.push({ date: day.date, status: rec.status })
     }
   }
+  
   recent.sort((a, b) => (a.date < b.date ? 1 : -1))
 
   // Build ID lookup maps for performance
