@@ -3,6 +3,7 @@ import { Router } from "express"
 import mongoose from "mongoose"
 // model imports
 import { Subject } from "../models/Subject.js"
+import { Class } from "../models/Class.js"
 // middleware imports
 import { authRequired, allowRoles, STAFF } from "../middleware/auth.js"
 import { SchemaValidation } from "../middleware/SchemaValidation.js"

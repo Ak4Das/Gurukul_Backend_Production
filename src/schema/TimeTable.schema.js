@@ -45,6 +45,10 @@ const timetablePeriodSchema = yup
       .strict()
       .required("End time is required")
       .matches(TIME_REGEX, "End time must be in HH:mm format"),
+
+    subjectId: yup.string().strict().required("subjectId is required"),
+
+    teacherId: yup.string().strict().required("teacherId is required"),
   })
   .test(
     "duration",
