@@ -447,7 +447,7 @@ router.post(
 
           const pSeq = await nextSeq("parentUser", session)
           const pUsername = `parent${pSeq}`
-          const pPassword = parentPassword || "parent123"
+          const pPassword = parentPassword
 
           const parentUser = new User({
             username: pUsername,
@@ -480,7 +480,7 @@ router.post(
       // Student login account
       const sSeq = await nextSeq("studentUser", session)
       const sUsername = `student${sSeq}`
-      const sPassword = loginPassword || "student123"
+      const sPassword = loginPassword
 
       const studentUser = new User({
         username: sUsername,

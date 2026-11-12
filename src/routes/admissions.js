@@ -330,7 +330,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
 
       const pSeq = await nextSeq("parentUser", session)
       const pUsername = `parent${pSeq}`
-      const pPassword = parentPassword || "parent123"
+      const pPassword = parentPassword
 
       const parentUser = new User({
         username: pUsername,
@@ -386,7 +386,7 @@ router.post("/:id/enroll", allowRoles(...STAFF), async (req, res, next) => {
 
     const sSeq = await nextSeq("studentUser", session)
     const sUsername = `student${sSeq}`
-    const sPassword = studentPassword || "student123"
+    const sPassword = studentPassword
 
     const studentUser = new User({
       username: sUsername,

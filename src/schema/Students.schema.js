@@ -212,7 +212,7 @@ export const studentCreateSchema = Yup.object({
       otherwise: (schema) => schema.notRequired(),
     }),
 
-  loginPassword: Yup.string().trim().notRequired(),
+  loginPassword: Yup.string().trim().required("Student password is required"),
 
-  parentPassword: Yup.string().trim().notRequired(),
+  parentPassword: Yup.string().trim().required("Parent password is required"),
 })

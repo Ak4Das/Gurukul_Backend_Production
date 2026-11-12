@@ -17,7 +17,6 @@ const salarySlipSchema = new mongoose.Schema(
     designation: { type: String },
     month: { type: String, required: true }, // Format: 'YYYY-MM'
     salary: { type: Number, default: 0 },
-    gross: { type: Number, default: 0 },
     netPay: { type: Number, default: 0 },
     workingDays: { type: Number, default: 26 },
     presentDays: { type: Number, default: 26 },
